@@ -14,10 +14,15 @@ fw/build/
 #     tools/mkelf.py + the analyzeHeadless command in MEMORY.md) ---
 analysis/ghidra_proj/
 analysis/ghidra_proj2/
+analysis/decomp2/          # duplicate of analysis/decomp (second Ghidra run)
 
 # reference-only third party headers (the firmware has its own register
 # access; nothing in fw/ includes them)
 fw/include/CMSIS/
+
+# --- analysis by-products ---
+tools/funcs.json
+tools/fw.elf
 
 # --- editor / OS noise ---
 *.o
