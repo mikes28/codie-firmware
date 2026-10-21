@@ -2,6 +2,37 @@
 
 Raw dump of the robot's STM32 bootloader flash, captured over USB DFU on 2026-10-21.
 
+> **This dump has been reverse engineered.** The original firmware was
+> decompiled (371/378 functions, Ghidra) and rebuilt as editable C in
+> [`fw/`](fw/) — see [Rebuilding the firmware](#rebuilding-the-firmware) below.
+> [`MEMORY.md`](MEMORY.md) holds the full analysis notes (chip identification,
+> protocol, register map, recovered module behaviour) and is the file to read
+> to continue the work.
+
+## Rebuilding the firmware
+
+```bash
+cd fw
+make            # -> build/fw.elf, build/fw.bin  (12.5 KB, fits 128 KB flash)
+make flash      # upload over USB DFU + read back and verify
+```
+
+* toolchain: `arm-none-eabi-gcc` (auto-detected in `../tools/`, or on `$PATH`)
+* target: Cortex-M0+, 128 KB flash @ 0x08000000, 16 KB RAM @ 0x20000000
+* no HAL, no dynamic allocation, one file per original module in `fw/modules/`
+* the wire protocol is byte-identical to the original (see `fw/README.md`)
+
+Verification helpers:
+
+```bash
+python3 tools/verify_features.py fw/build/fw.bin   # protocol surface vs. the dump
+gcc -Ifw/include tools/protocol_test.c fw/modules/proxy.c -o /tmp/pt && /tmp/pt
+```
+
+The host test prints the exact bytes of the greeting, the value reply, the
+error messages and the unknown-interface reply and compares them with the
+behaviour recovered from the original binary.
+
 ## Files
 
 | file | size | sha256 (short) | what |
