@@ -32,7 +32,8 @@ CFLAGS := -mcpu=cortex-m0plus -mthumb -Os -g3 -ffunction-sections -fdata-section
 LDFLAGS := -mcpu=cortex-m0plus -mthumb -T$(CURDIR)/linker/stm32g071rb.ld \
            -nostartfiles -Wl,--gc-sections -Wl,-Map=$(BUILD)/$(TARGET).map --specs=nosys.specs
 
-SRCS := $(shell find $(SRC) $(MODULES) -name '*.c' 2>/dev/null)
+# sorted, so the link order (and the image) is reproducible
+SRCS := $(sort $(shell find $(SRC) $(MODULES) -name '*.c' 2>/dev/null))
 OBJS := $(addprefix $(BUILD)/,$(SRCS:.c=.o))
 DEPS := $(OBJS:.o=.d)
 
