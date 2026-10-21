@@ -1,0 +1,107 @@
+openjdk version "26.0.2.1" 2026-08-18
+OpenJDK Runtime Environment (build 26.0.2.1)
+OpenJDK 64-Bit Server VM (build 26.0.2.1, mixed mode)
+INFO  Using log config file: jar:file:/home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Framework/Generic/lib/Generic.jar!/generic.log4j.xml (LoggingInitialization)  
+INFO  Using log file: /home/mikes/.config/ghidra/ghidra_12.1.4_PUBLIC/application.log (LoggingInitialization)  
+INFO  Loading user preferences: /home/mikes/.config/ghidra/ghidra_12.1.4_PUBLIC/preferences (Preferences)  
+INFO  Searching for classes... (ClassSearcher)  
+INFO  Class search complete (2114 ms) (ClassSearcher)  
+WARNING: Final field name in class ghidra.util.charset.CharsetInfo has been mutated reflectively by class com.google.gson.internal.bind.ReflectiveTypeAdapterFactory$2 in unnamed module @5fbdfdcf (file:/home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Framework/Generic/lib/gson-2.13.2.jar)
+WARNING: Use --enable-final-field-mutation=ALL-UNNAMED to avoid a warning
+WARNING: Mutating final fields will be blocked in a future release unless final field mutation is enabled
+INFO  Initializing SSL Context (DefaultSSLContextInitializer)  
+INFO  Initializing Random Number Generator... (SecureRandomFactory)  
+INFO  Random Number Generator initialization complete: NativePRNGNonBlocking (SecureRandomFactory)  
+INFO  Trust manager disabled, cacerts have not been set (DefaultTrustManagerFactory)  
+INFO  Headless startup complete (6332 ms) (AnalyzeHeadless)  
+INFO  Class searcher loaded 177 extension points (88 false positives) (ClassSearcher)  
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::staticFieldOffset has been called by org.apache.felix.framework.util.SecureAction (file:/home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/lib/org.apache.felix.framework-7.0.5.jar)
+WARNING: Please consider reporting this to the maintainers of class org.apache.felix.framework.util.SecureAction
+WARNING: sun.misc.Unsafe::staticFieldOffset will be removed in a future release
+INFO  HEADLESS Script Paths:
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/DecompilerDependent/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Processors/Atmel/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Processors/PIC/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Debug/Debugger-rmi-trace/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/BytePatterns/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/SwiftDemangler/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Processors/JVM/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/FileFormats/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/FunctionID/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/SystemEmulation/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Debug/Debugger/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/WildcardAssembler/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/PyGhidra/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/Base/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/Decompiler/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/VersionTracking/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/BSim/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/PDB/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Processors/8051/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Processors/DATA/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/GnuDemangler/ghidra_scripts
+    /home/mikes/Documents/codie-firmware-dump/tools/ghidra_12.1.4_PUBLIC/Ghidra/Features/MicrosoftCodeAnalyzer/ghidra_scripts (HeadlessAnalyzer)  
+INFO  HEADLESS: execution starts (HeadlessAnalyzer)  
+INFO  Creating project: /home/mikes/Documents/codie-firmware-dump/analysis/ghidra_proj2/codie (HeadlessAnalyzer)  
+INFO  Creating project: /home/mikes/Documents/codie-firmware-dump/analysis/ghidra_proj2/codie (DefaultProject)  
+INFO  REPORT: Processing input files:  (HeadlessAnalyzer)  
+INFO       project: /home/mikes/Documents/codie-firmware-dump/analysis/ghidra_proj2/codie (HeadlessAnalyzer)  
+INFO  IMPORTING: file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf (HeadlessAnalyzer)  
+WARN  Using unknown opinion: Executable and Linking Format (ELF), ARM:LE:32:Cortex:default (LcsHintLoadSpecChooser)  
+INFO  Using Loader: Executable and Linking Format (ELF) (ProgramLoader)  
+INFO  Using Language/Compiler: ARM:LE:32:Cortex:default (ProgramLoader)  
+INFO  Using Library Search Path: [., /bin, /lib, /lib64, /lib/x86_64-linux-gnu, /lib/aarch64-linux-gnu, /usr/bin, /usr/lib, /usr/X11R6/bin, /usr/X11R6/lib, /usr/java/packages/lib, /usr/lib64] (ProgramLoader)  
+INFO  Additional info:
+Loading file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf?MD5=481cb81c215abf525e1a0a63c0b5fdb0...
+------------------------------------------------
+
+ (ProgramLoader)  
+INFO  IMPORTING: Loaded 0 additional files (HeadlessAnalyzer)  
+INFO  ANALYZING all memory and code: file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf (HeadlessAnalyzer)  
+INFO  Packed database cache: /var/tmp/mikes-ghidra/packed-db-cache (PackedDatabaseCache)  
+INFO  Applied data type archive: generic_clib (ApplyDataArchiveAnalyzer)  
+INFO  -----------------------------------------------------
+    ARM Constant Reference Analyzer            1.673 secs
+    ARM Symbol                                 0.003 secs
+    ASCII Strings                              0.497 secs
+    Apply Data Archives                        0.932 secs
+    Call Convention ID                         0.010 secs
+    Call-Fixup Installer                       0.005 secs
+    Create Address Tables                      0.043 secs
+    Create Address Tables - One Time           0.157 secs
+    Create Function                            0.042 secs
+    Data Reference                             0.195 secs
+    Decompiler Switch Analysis                 2.088 secs
+    Demangler GNU                              0.083 secs
+    Disassemble Entry Points                   2.198 secs
+    Embedded Media                             0.016 secs
+    External Entry References                  0.006 secs
+    Function ID                                0.035 secs
+    Function Start Pre Search                  0.021 secs
+    Function Start Search                      0.208 secs
+    Function Start Search After Code           0.064 secs
+    Function Start Search After Data           0.057 secs
+    Non-Returning Functions - Discovered       0.060 secs
+    Non-Returning Functions - Known            0.002 secs
+    Reference                                  0.244 secs
+    Shared Return Calls                        0.040 secs
+    Stack                                      1.181 secs
+    Subroutine References                      0.059 secs
+    Subroutine References - One Time           0.000 secs
+-----------------------------------------------------
+     Total Time   9 secs
+-----------------------------------------------------
+ (AutoAnalysisManager)  
+INFO  REPORT: Analysis succeeded for file: file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf (HeadlessAnalyzer)  
+INFO  REPORT: Execute script: ExportDecomp.java '/home/mikes/Documents/codie-firmware-dump/analysis/decomp2'  (HeadlessAnalyzer)  
+INFO  SCRIPT: /home/mikes/Documents/codie-firmware-dump/tools/ghidra/ExportDecomp.java (HeadlessAnalyzer)  
+WARN  Decompiling 0800bfd4, pcode error at 0800bfe0: Unable to resolve constructor at 0800bfe0 (DecompileCallback)  
+INFO  ExportDecomp.java> ExportDecomp: functions=378 failed=0 (GhidraScript)  
+INFO  ANALYZING changes made by post scripts: file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf (HeadlessAnalyzer)  
+INFO  REPORT: Post-analysis succeeded for file: file:///home/mikes/Documents/codie-firmware-dump/tools/fw.elf (HeadlessAnalyzer)  
+INFO  /fw.elf: file created (mikes) (LocalFileSystem)  
+INFO  REPORT: Save succeeded for: /fw.elf (codie:/fw.elf) (HeadlessAnalyzer)  
+INFO  REPORT: Import succeeded (HeadlessAnalyzer)  
+EXIT=0

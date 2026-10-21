@@ -1,0 +1,7 @@
+.text 0x8000000 - 0x801ffff r=true w=false x=true
+.shstrtab 0x0 - 0x20 r=false w=false x=false
+.strtab 0x0 - 0xf4d r=false w=false x=false
+.symtab 0x0 - 0x131f r=false w=false x=false
+_elfHeader 0x0 - 0x33 r=false w=false x=false
+_elfProgramHeaders 0x0 - 0x1f r=false w=false x=false
+_elfSectionHeaders 0x0 - 0xc7 r=false w=false x=false

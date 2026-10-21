@@ -1,0 +1,54 @@
+{
+ "appSys,drvBattery": [
+  "0x8000128",
+  "0x800012c",
+  "0x80001b0",
+  "0x80001c4",
+  "0x8002dd4",
+  "0x80068d4",
+  "0x800693c",
+  "0x8006c44",
+  "0x8006e94",
+  "0x8006f2c",
+  "0x80077a0",
+  "0x8007830",
+  "0x80078e4",
+  "0x8007980",
+  "0x8007cfc",
+  "0x800af54",
+  "0x800af90",
+  "0x800afa0",
+  "0x800afbc",
+  "0x800afdc",
+  "0x800b260",
+  "0x800b38c",
+  "0x800b3c0"
+ ],
+ "hwiDrive": [
+  "0x800033c",
+  "0x80069d4",
+  "0x80089d0",
+  "0x8008a50",
+  "0x8008b3c",
+  "0x800b1f0",
+  "0x800b1f4",
+  "0x800b1f8"
+ ],
+ "hwiPower": [
+  "0x80097e8",
+  "0x800981c",
+  "0x800a084"
+ ],
+ "appSys,drvBattery,hwiDrive": [
+  "0x800a160",
+  "0x800a16c",
+  "0x800b1ec"
+ ],
+ "appSys,drvBattery,hwiDrive,hwiPower": [
+  "0x800aabc",
+  "0x800b740"
+ ],
+ "appSys,drvBattery,hwiPower": [
+  "0x800ab10"
+ ]
+}

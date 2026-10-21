@@ -1,0 +1,19 @@
+=== functions that reference an interface-name string address ===
+0x8006f2c  FUN_08006F2C       1862  -> drvBattery
+        calls FUN_080068D4
+        calls FUN_0800693C
+        calls FUN_08006C44
+        calls FUN_08006E94
+        calls FUN_08006F2C
+        calls FUN_08007CFC
+        calls FUN_0800A16C
+        calls FUN_0800ab10
+        calls FUN_0800b740
+0x8008b3c  FUN_08008B3C        761  -> hwiDrive
+        calls FUN_080069D4
+        calls FUN_080089D0
+        calls FUN_08008A50
+        calls FUN_08008B3C
+        calls FUN_0800A16C
+        calls FUN_0800aabc
+        calls FUN_0800b740
