@@ -57,4 +57,20 @@ size: $(BUILD)/$(TARGET).elf
 flash: $(BUILD)/$(TARGET).bin
 	./flash.sh $(BUILD)/$(TARGET).bin
 
-.PHONY: all size flash clean
+# Host side tests: the protocol layer against the expected bytes, and the
+# whole firmware running against a fake memory-mapped peripheral map.
+HOSTCC ?= cc
+test: $(BUILD)/$(TARGET).elf
+	@echo "== protocol layer =="
+	$(HOSTCC) -std=c99 -Iinclude ../tools/protocol_test.c modules/proxy.c -o $(BUILD)/protocol_test
+	$(BUILD)/protocol_test
+	@echo
+	@echo "== full firmware in the host simulator =="
+	../tools/run_sim.sh
+
+clean:
+	rm -rf $(BUILD)
+
+-include $(DEPS)
+
+.PHONY: all size flash clean test
