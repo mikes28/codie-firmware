@@ -150,10 +150,10 @@ int  hwi_parse_args(const char *args, int *vals, int max);
  * FUN_0800B3FC); the reconstruction uses the configured value below.
  * APB1 = HCLK / 2 in the original (its buzzer uses SystemCoreClock/2). */
 #ifndef HWI_APB1_HZ
-#define HWI_APB1_HZ 48000000u
+#define HWI_APB1_HZ 96000000u   /* the PLL of system_stm32g0.c: 96 MHz */
 #endif
 #ifndef HWI_TIMCLK_HZ
-#define HWI_TIMCLK_HZ (HWI_APB1_HZ / 2u)
+#define HWI_TIMCLK_HZ (HWI_APB1_HZ * 2u) /* APB prescaler 1 -> timer clock = 2 x APB */
 #endif
 
 #endif /* HWI_B_HAL_H */

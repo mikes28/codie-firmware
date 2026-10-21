@@ -407,7 +407,7 @@ void out_char(char c)
         bleCom_init();
     }
     deadline = hwi_millis() + ble_tx_budget_ms(1);
-    while (!hwi_usart_tx_ready(BLE_USART)) {
+    while (!hwi_usart_tx_ready(CONSOLE_USART)) {
         if (ble_past(hwi_millis(), deadline)) {
             if (!ble_timeout_reported) {
                 ble_timeout_reported = 1u;
@@ -416,7 +416,7 @@ void out_char(char c)
             return;
         }
     }
-    hwi_usart_putc(BLE_USART, (uint8_t)c);
+    hwi_usart_putc(CONSOLE_USART, (uint8_t)c);
     ble_timeout_reported = 0u;
 }
 
