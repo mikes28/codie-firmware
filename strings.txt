@@ -1,0 +1,507 @@
+ "&cM
+ "&oJ
+ -#4J
+ .!PT
+ /!XT
+ 3"9I
+ 3";I
+ 3O9X
+ 4!PT
+ 4!XT3"
+ 9">I
+ 9"@I
+ :!PT
+ :!XT9"
+ ?"CI
+ ?"EI
+ @!PT
+ @!XT?"
+ @jpG
+ E"HI
+ E"JI
+ F!PT
+ F!XTE"
+ K"MI
+ K"OI
+ KFTFgF
+ L!PT
+ L!XTK"
+ P!xTN$8UO"
+ PphF
+ YFy@KF
+ `` s
+!"#YJ
+!)@:h
+!- 6K
+!-MnX
+!BFSZb
+!FF1@
+!HNpPGJ
+!KFTF
+!LHC\
+!L`b!M
+!NBnC
+!ZR"L
+!`@BF
+!hMnPjH
+"!KMl\
+"!WHC\
+""!jT 
+"$aM.]
+"%~Nq]
+"*!ZT, 
+".!ZT- 
+".!jT-#
+"/!ZT- 
+"2!ZT0 
+"4!jT3#
+"5!BT3#
+"8!BT6#
+":!jT9#
+":q<a
+";!BT9#
+">!BT<#
+"@!jT?#
+"@M)`j`SF
+"A!BT?#
+"D!BTB#
+"F!jTE#
+"G!BTE#
+"J!BTH#
+"M!BTK#
+"O!ZT
+"P!bTN%bUO&
+"bq '
+"hd*^
+#( +T
+#+p@Fhp
+#5!CT
+#;!CT
+#A!CT
+#G!CT
+#M!CT
+$&C1C
+$,pAFip
+$mF,q
+%"$qI
+%%NrYQ
+%%pSO
+%4`u`
+%KFgF*
+%L!]TK"
+%eJVYr
+%pU9L 
+%xJVYp
+%xNF.B
+&&pfp
+&rZxIF
+'BF:@UNS
+'KHB$N@
+(!RFP\
+)3hFBxZq
+)3lFbxZq
+*!TF`\
++I!`)KXh
++IJ] h
+-KF!]TE"
+0.5.0hw2.1
+0ILl 
+1602121419
+1H4!FT3"
+31!kT
+37!kT
+3=!kT
+3C!kT
+4IMC%`
+4M%DU
+4Oxk8K
+4P!DT
+4]F@5
+57Qe`
+5Mq*0
+5Uq*4
+6KXhZh
+6LfkY.>
+6XFQF
+7H@!FT?"
+7HFAF
+8Cq)2Sq#
+8Dq)7|q-
+8Dq*2Tq
+8Dq*2Tq(
+8L6H!
+8`y`GH
+9Kq)2Sq!
+:Qq)0Aq#
+:Sq)0Cq#
+:Sq)0Cq&
+:Sq)0Cq'
+:proxy
+; xXq*1
+;\q*1Lq0h
+>HL!FTK"
+>KC!ZTB%ZUD!ZT
+@"CTF
+@NFJF
+@WF<C
+@Y`Xh
+@Z`Yh
+A2`s`
+A3CgF
+AKDPB
+AKFBB[D
+ALDjB
+ALF2C
+ANBQF
+AO$$>]z
+AQF{Bo
+A\DCB
+A^DBB
+AvB[F
+B9!ET;"
+BFjp`F(p
+BLE USART noise
+BLE USART overrun
+BLE framing error
+BLE-RSP GAP SET MODE: 
+BLE-RSP HELLO
+BLE-boot
+BUFOVF!!!!!
+C"CBP
+C#b  
+C)bmj
+C.i2C:C"`
+CC`Ah
+CPFZF
+Cf`'h$K
+DUCOE
+EFVF5p
+ERR:BLE_serout_TO
+F" ;h
+F%hfh@
+F)!W\. 
+F+ @BHC
+F5L%h
+FACXF
+FGCHF
+FMF~]
+FNF0C
+FRFDF
+FVFJF
+F[F{@bFAF
+FgFDF
+Fjp/p@F
+FoBoA`F
+FpG???
+G  )h
+G  *h
+G" 3h
+G$h/H
+G(hAF
+G*h  
+G*hPF
+G-h  
+G2H#h
+G3O  :h
+G7h" 
+G9h  
+G: :h
+G@F!h
+H1!FT0#
+H:!FT9"
+HF!FTE"
+IEBEAM`
+Invalid command!
+JFVF2C
+JHhTh
+JJ`0 
+K.!ZT-%ZU/!ZT
+K.!^T-"
+K1!ZT0%ZU2!ZT
+K4!]T3"
+K7!ZT6%ZU8!ZT
+KAW$dB
+KC`CQCTC
+KI!ZTH%ZUJ!ZT
+KL!]TK"
+KX`pG
+KXapG
+KXbpG
+KYhY`ZhZ`Xh
+K[XCP
+L bab
+L jaj
+L#y%h\
+L&!cT
+L+hce
+LBF"p
+LFRFWF
+LO !TN#
+M  +h
+M.{&po{gp
+M/@7C
+MFDF_FVF
+N  4h
+N4h" 
+N5h{h
+No interface:
+PK@!]T?"
+PPRET
+QqM,h
+RF1!PT
+RF4!PT
+RF7!PT
+RF:!PT
+RF=!PT
+RF@!PT
+RFC!PT
+RFF!PT
+RFI!PT
+RFL!PT
+SF0!XT
+SF3!XT
+SF6!XT
+SF9!XT
+SF<!XT
+SF?!XT
+SFB!XT
+SFCC9
+SFE!XT
+SFH!XT
+SFK!XT
+T-!ZT. 
+T-!ZT/ 
+T.!CT-"
+T.!ZT9
+T.!ZTK
+T/!CT
+T/!TT
+T/!ZT
+T/!ZTJK
+T/!jT
+T0!CT2"
+T0!ET
+T0!XT2"
+T0!ZT1 
+T0!jT2#
+T1!ZT2
+T1!ZTD
+T3!BT4#
+T3!ET5"
+T4!BT;
+T4!BTM
+T4!CT3"
+T5!CT1"
+T5!XT<K
+T5!]T
+T5!jT
+T6!BT7#
+T6!CT8"
+T6!ET8"
+T6!XT8"
+T6!jT8#
+T7!BT6
+T7!BTH
+T9!BT:#
+T:!BT;
+T:!BTM
+T:!CT9"
+T:H7#
+T:HO#
+T;!CT7"
+T;!XT.K
+T;!]T
+T;!jT
+T<!BT=#
+T<!CT>"
+T<!ET>"
+T<!XT>"
+T<!jT>#
+T=!BT2
+T=!BTD
+T?!BT@#
+T?!ETA"
+T@!BT;
+T@!BTM
+T@!CT?"
+TA!CT="
+TA!XT K
+TA!]T
+TA!jT
+TAx'"
+TB!BTC#
+TB!CTD"
+TB!ETD"
+TB!XTD"
+TB!jTD#
+TC!BT5
+TC!BTG
+TE!BTF#
+TE!ETG"
+TF!BT;
+TF!BTM
+TF!CTE"
+TF"CS
+TG!CTC"
+TG!XT
+TG!]T
+TG!jT
+TH!BTI#
+TH!CTJ"
+TH!ETJ"
+TH!XTJ"
+TH!jTJ#
+TI!BT2
+TI!BTD
+TK!BTL#
+TK!ETM"
+TL!BT;
+TL!BTM
+TL!CTK"
+TM!CTI"
+TM!XT
+TM!]T
+TN!CTP"
+TN!ETP%DU
+TN!XTP"
+TN!ZT
+TN%`UP"
+TP%aU
+TWHC#
+TrH4#
+TrHL#
+U&h$i
+U*xN!bT
+UO .T
+UQM,hQH
+USART framing error
+VFDF_FMF
+Vsens
+WF:CS
+WFNFEF
+XCBL `BH
+XF`@BF
+XO:h{h
+YCVC{CzC
+YCrC{C~C
+[F{@bFAF
+\'!Y\)"
+\6aY0
+^d XC
+_FMFDFVF
+_FVFMFDF
+`!abaeb
+`!nF1
+`(K( 
+`@FYF
+`@h&N
+`JhB`
+`UN%f]#h
+`UP%f]"h
+`Xh3I
+`Xh6I
+`_`HFAF
+aBaBb
+aCapG
+aK=!ZT<%ZU>!ZT
+appDrive
+appLightSense
+appLights
+appSys
+bBapG
+bDZDbE
+bleCom
+chargeStat
+current
+d$aBL
+drvBattery
+dutyA
+dutyB
+eP%Peh
+e`]hm
+ee& "\
+fFCF7
+gF|CJC6
+gLkH!
+gM+@r
+grXxB
+greeting
+gsYxH
+h!Lah
+hBF"@S
+hwInit
+hwiAdc
+hwiBuzz
+hwiDrive
+hwiEnc
+hwiLed
+hwiLightSense
+hwiLine
+hwiMic
+hwiPower
+hwiSonar
+i#CLi#C
+i#CLj#C
+jFQx.#
+jFyx4#
+jFyx:#
+jFyx@#
+jFyxF#
+jFyxL#
+jXCd!
+jpFF.pgF
+kA0 @B
+message
+nFault
+oBXB8C6
+oF~x1 &TjF9x0#
+oF~x7 &TjF9x6#
+oF~x= &TjF9x<#
+oF~xC &TjF9xB#
+oF~xI &TjF9xH#
+opAF)p
+p+xmx(
+pBFjp(
+pBpAj
+pD!Ap
+pEFEp
+pGAcpG
+pH!Yp
+pN%Ep
+paxAp
+possible cmdBuf overflow
+poxGp
+pwrOff
+q xdx!
+qmyEq
+remainingCapacity
+sK:!]T9"
+ttpms
+uL&{.pg{op
+voltage
+x &.B
+x(!XTPx'!XT
+x)!XTpG
+x+pBF
+x- &T
+x2 &T(
+x3 &T
+x8 &T(
+x9 &T
+x> &T(
+x? &T
+x?GU{?
+x@&.B
+xD &T(
+xE &T
+xFF.B
+xJ &T(
+xK &T
+xKp<"
+xO!`TN%bUP!cTL%`UK!bTM%cUI!`TH%bUJ!cTF%`UE!bTG%cUC!`TB%bUD!cT@%`U?!bTA%cU=!`T<%bU>!cT:%`U9!bT;%cU7!`T6%bU8!cT4%`U3!bT5%cU1!`T0%bU2!cT.%`U- "T/"
+xZq*1
+xeF5B
+{A"`c`
+~$gBJF
+~&sBJF
+~CkCGCEC

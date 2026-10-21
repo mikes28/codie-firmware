@@ -1,0 +1,27 @@
+# --- toolchains and helpers that are re-downloadable, not source ---
+tools/ghidra_12.1.4_PUBLIC/
+tools/xpack-arm-none-eabi-gcc-*/
+tools/*.tar.gz
+tools/*.zip
+tools/*.done
+tools/dl.log
+.venv/
+
+# --- generated build output ---
+fw/build/
+
+# --- the Ghidra project (2.8 MB of binary state; regenerate with
+#     tools/mkelf.py + the analyzeHeadless command in MEMORY.md) ---
+analysis/ghidra_proj/
+analysis/ghidra_proj2/
+
+# reference-only third party headers (the firmware has its own register
+# access; nothing in fw/ includes them)
+fw/include/CMSIS/
+
+# --- editor / OS noise ---
+*.o
+*.d
+*.swp
+.DS_Store
+*~
