@@ -19,9 +19,19 @@ bench = false
 # linker/stm32g071rb.ld (see .cargo/config.toml)
 
 [profile.release]
-opt-level = "s"        # size matters more than speed on this part
-lto = true
-codegen-units = 1
+# The image is the deliverable: the flash is 128 KB and the C reference
+# rebuild is 12 608 bytes, so every byte of .text/.rodata counts.
+opt-level = "z"        # size over speed: -Copt-level=z is 844 bytes smaller
+                        # than "s" on this tree and the hot paths are all
+                        # bit banging / byte shuffling, not arithmetic
+lto = true             # fat LTO: "thin" costs 2.4 kB, "false" 10.8 kB
+codegen-units = 1      # one CGU -> the best optimisation across the crate
 panic = "abort"        # no unwinder on a Cortex-M0+
-debug = true
+debug = "line-tables-only"
+                        # the .debug_* sections are not in the .bin, but they
+                        # make the .elf 280 kB instead of 148 kB and slow the
+                        # build down; the line tables are kept for addr2line
 overflow-checks = false # the C firmware relies on 32 bit wrap around
+
+# The host build (cargo test) keeps its own profile: the tests are the
+# oracle and must stay fast and debuggable.

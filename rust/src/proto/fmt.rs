@@ -26,8 +26,16 @@ impl<const N: usize> Buf<N> {
     }
 
     /// The text.
+    ///
+    /// The buffer only ever holds the characters of the number formatting
+    /// (ASCII), so the conversion is unchecked - like the C, which writes
+    /// into a `char[]` without validating anything.  The check is kept for
+    /// the debug build.
     pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.data[..self.len]).unwrap_or("")
+        debug_assert!(core::str::from_utf8(&self.data[..self.len]).is_ok());
+        // SAFETY: the buffer holds the digits of a number and the characters
+        // of the format strings, all of them ASCII
+        unsafe { core::str::from_utf8_unchecked(&self.data[..self.len]) }
     }
 
     /// The number of characters.

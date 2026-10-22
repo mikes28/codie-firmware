@@ -19,13 +19,28 @@ impl<const N: usize> Ring<N> {
         Ring { buf: [0; N], head: 0, tail: 0, count: 0 }
     }
 
+    /// The next slot after `i`.
+    ///
+    /// The C wraps with a modulo (`head = (head + 1) % size`).  For a
+    /// capacity that is a power of two the modulo is a mask - the two
+    /// rings of the BLE link (128 and 64 bytes) are the ones that go
+    /// through this path for every byte of every command.
+    #[inline]
+    const fn next(i: u16) -> u16 {
+        if N != 0 && (N & (N - 1)) == 0 {
+            (i + 1) & ((N as u16) - 1)
+        } else {
+            (i + 1) % (N as u16)
+        }
+    }
+
     /// Put one byte into the ring, returns false when the ring is full.
     pub fn put(&mut self, b: u8) -> bool {
         if self.count as usize >= N {
             return false; // buffer full
         }
         self.buf[self.head as usize] = b;
-        self.head = ((self.head + 1) % N as u16) as u16;
+        self.head = Self::next(self.head);
         self.count += 1;
         true
     }
@@ -36,7 +51,7 @@ impl<const N: usize> Ring<N> {
             return None;
         }
         let b = self.buf[self.tail as usize];
-        self.tail = ((self.tail + 1) % N as u16) as u16;
+        self.tail = Self::next(self.tail);
         self.count -= 1;
         Some(b)
     }
@@ -46,7 +61,7 @@ impl<const N: usize> Ring<N> {
         let mut n = 0u16;
         while (n as usize) < dst.len() && self.count != 0 {
             dst[n as usize] = self.buf[self.tail as usize];
-            self.tail = ((self.tail + 1) % N as u16) as u16;
+            self.tail = Self::next(self.tail);
             self.count -= 1;
             n += 1;
         }

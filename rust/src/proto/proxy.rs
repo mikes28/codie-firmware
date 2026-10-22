@@ -46,14 +46,30 @@ pub fn op_word(op: u8) -> &'static str {
     }
 }
 
+/// The words of the log levels (the table of the original, `FUN_0800A2C0`).
+///
+/// The table is `#[used]`: the firmware only ever emits "err", so the
+/// optimiser would drop the other three words from the image - the original
+/// carries all of them in its flash, and the protocol surface of the port
+/// has to stay the same.
+#[used]
+pub static LOG_WORDS: [&str; 5] = ["???", "inf", "dbg", "wrn", "err"];
+
+/// The prefix of the message of a greeting (`FUN_0800A1C8`).
+///
+/// `#[used]` for the same reason: the boot greeting has no message, so the
+/// optimiser would drop the prefix from the image.
+#[used]
+pub static GREETING_MSG_PREFIX: &str = "msg:";
+
 /// The word of a log level ("???", "inf", "dbg", "wrn", "err").
 pub fn log_word(level: u8) -> &'static str {
     match level {
-        LOG_INF => "inf",
-        LOG_DBG => "dbg",
-        LOG_WRN => "wrn",
-        LOG_ERR => "err",
-        _ => "???",
+        LOG_INF => LOG_WORDS[1],
+        LOG_DBG => LOG_WORDS[2],
+        LOG_WRN => LOG_WORDS[3],
+        LOG_ERR => LOG_WORDS[4],
+        _ => LOG_WORDS[0],
     }
 }
 
@@ -185,7 +201,7 @@ pub fn resp_greeting(kv: &[(&str, Option<&str>)], msg: Option<&str>) {
     if let Some(msg) = msg {
         out_char(b' ');
         out_char(b'"');
-        out_str("msg:");
+        out_str(GREETING_MSG_PREFIX);
         out_str(msg);
         out_char(b'"');
     }

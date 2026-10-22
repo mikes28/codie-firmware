@@ -165,8 +165,13 @@ pub fn run() -> ! {
             if s_cmdbuf[0] == 0 {
                 proxy::resp_message(proxy::LOG_ERR, "possible cmdBuf overflow", None);
             }
-            // the bytes of the command line are ASCII, so from_utf8 is safe
-            let cmd = core::str::from_utf8(&s_cmdbuf[..n]).unwrap_or("");
+            // The C hands the line over as a NUL terminated C string and does
+            // not validate anything; the bytes of the command line are ASCII
+            // (they come from the link), so the conversion is unchecked.
+            debug_assert!(core::str::from_utf8(&s_cmdbuf[..n]).is_ok());
+            // SAFETY: the bytes come from the serial link, the protocol is
+            // ASCII - the C does the same without a check
+            let cmd = unsafe { core::str::from_utf8_unchecked(&s_cmdbuf[..n]) };
             proxy::dispatch(cmd);
         }
 

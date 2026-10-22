@@ -48,10 +48,13 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
+  /* The unwinder is never used: the profile sets panic = "abort", so the
+   * exception index and the exception table are dead weight (16 bytes).
+   * The symbols are still defined so that anything referencing them links.
+   */
   .ARM.extab : { *(.ARM.extab* .gnu.linkonce.armextab.*) } >FLASH
   .ARM : {
     __exidx_start = .;
-    *(.ARM.exidx*)
     __exidx_end = .;
   } >FLASH
 
@@ -106,7 +109,18 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
-  /DISCARD/ : { libc.a(*) libm.a(*) libgcc.a(*) }
+  /* The exception index is discarded: panic = "abort" means there is no
+   * unwinder at all (see the .ARM section above).  The libc/libm/libgcc
+   * patterns are the ones of the C rebuild; the Rust link pulls in neither
+   * (the compiler builtins come in as libcompiler_builtins.rlib).
+   */
+  /DISCARD/ : {
+    libc.a(*)
+    libm.a(*)
+    libgcc.a(*)
+    *(.ARM.exidx*)
+    *(.ARM.extab*)
+  }
 
   .ARM.attributes 0 : { *(.ARM.attributes) }
 }

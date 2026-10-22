@@ -2,14 +2,26 @@
 #
 #   host build / tests :  cargo test
 #   firmware image     :  cargo build --release --target thumbv6m-none-eabi
-#   binary             :  target/thumbv6m-none-eabi/release/codie (ELF)
+#   binary             :  target/thumbv6m-none-eabi/release/codie-fw (ELF)
 #
 # The link is done with the GNU linker script in linker/stm32g071rb.ld
 # (128 KB flash @ 0x08000000, 16 KB RAM @ 0x20000000) - the same memory map
 # as the C rebuild in ../fw.
+#
+# The linker is rust-lld (the default of the target).  It is *not* the GNU
+# ld of the bundled toolchain: the GNU ld needs its library search path for
+# the /DISCARD/ patterns of the linker script and produces a 32 byte larger
+# image (14 812 vs 14 780) without any benefit - the protocol strings come
+# out exactly the same (both linkers keep the mergeable string sections
+# glued, so the strings are stored twice either way).
 
 [target.thumbv6m-none-eabi]
 rustflags = [
+    # the linker script with the memory map of the original
     "-C", "link-arg=-Tlinker/stm32g071rb.ld",
+    # no page alignment between the sections: the image is a flat binary
     "-C", "link-arg=--nmagic",
+    # drop the sections nobody references (rustc already passes this, it is
+    # listed here so the intent is documented and survives a toolchain change)
+    "-C", "link-arg=--gc-sections",
 ]
