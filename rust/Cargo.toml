@@ -1,0 +1,27 @@
+[package]
+name = "codie-fw"
+version = "0.5.0"
+edition = "2021"
+description = "Codie robot firmware - Rust port of the reconstructed C firmware"
+publish = false
+
+[lib]
+name = "codie"
+path = "src/lib.rs"
+# the library holds the whole firmware and is what the tests use
+
+[[bin]]
+name = "codie-fw"
+path = "src/main.rs"
+test = false
+bench = false
+# the binary is the firmware image: it is linked with the script in
+# linker/stm32g071rb.ld (see .cargo/config.toml)
+
+[profile.release]
+opt-level = "s"        # size matters more than speed on this part
+lto = true
+codegen-units = 1
+panic = "abort"        # no unwinder on a Cortex-M0+
+debug = true
+overflow-checks = false # the C firmware relies on 32 bit wrap around

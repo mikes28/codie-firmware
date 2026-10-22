@@ -1,0 +1,15 @@
+# Build configuration of the Codie robot firmware (Rust port).
+#
+#   host build / tests :  cargo test
+#   firmware image     :  cargo build --release --target thumbv6m-none-eabi
+#   binary             :  target/thumbv6m-none-eabi/release/codie (ELF)
+#
+# The link is done with the GNU linker script in linker/stm32g071rb.ld
+# (128 KB flash @ 0x08000000, 16 KB RAM @ 0x20000000) - the same memory map
+# as the C rebuild in ../fw.
+
+[target.thumbv6m-none-eabi]
+rustflags = [
+    "-C", "link-arg=-Tlinker/stm32g071rb.ld",
+    "-C", "link-arg=--nmagic",
+]

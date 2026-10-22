@@ -9,6 +9,8 @@ tools/dl.log
 
 # --- generated build output ---
 fw/build/
+rust/target/
+rust/build/
 
 # --- the Ghidra project (2.8 MB of binary state; regenerate with
 #     tools/mkelf.py + the analyzeHeadless command in MEMORY.md) ---
