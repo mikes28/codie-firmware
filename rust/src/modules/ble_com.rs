@@ -252,8 +252,8 @@ pub fn init() {
         pull: 0,
     };
     gpio::config_per_pin(addr::GPIOB, &cfg);
-    gpio::set_afr(addr::GPIOB, 1, 4);
-    gpio::set_afr(addr::GPIOB, 13, 4);
+    gpio::set_af(addr::GPIOB, 1, 4);
+    gpio::set_af(addr::GPIOB, 13, 4);
 
     // GPIOC: PC4 and PC5 as alternate function (AF1)
     let cfg = gpio::PerPinCfg {
@@ -264,8 +264,8 @@ pub fn init() {
         pull: 0,
     };
     gpio::config_per_pin(addr::GPIOC, &cfg);
-    gpio::set_afr(addr::GPIOC, 4, 1);
-    gpio::set_afr(addr::GPIOC, 5, 1);
+    gpio::set_af(addr::GPIOC, 4, 1);
+    gpio::set_af(addr::GPIOC, 5, 1);
 
     // GPIOA: PA2 is an input (the module's state line)
     let cfg = gpio::PerPinCfg {
@@ -301,8 +301,8 @@ pub fn init() {
         pull: gpio::PULL_UP,
     };
     gpio::config_per_pin(addr::GPIOC, &cfg);
-    gpio::set_afr(addr::GPIOC, 10, 0);
-    gpio::set_afr(addr::GPIOC, 11, 0);
+    gpio::set_af(addr::GPIOC, 10, 0);
+    gpio::set_af(addr::GPIOC, 11, 0);
 
     usart::init(CONSOLE_USART, CONSOLE_BAUD, CONSOLE_STOP_BITS);
     usart::enable(CONSOLE_USART);

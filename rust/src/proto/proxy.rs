@@ -113,13 +113,24 @@ pub fn register(iface: Iface) {
 
 /// `FUN_0800A16C` - the value reply.
 pub fn resp_value(op: u8, iface: &str, opname: &str, value: &str) {
+    resp_value_opt(op, iface, opname, Some(value))
+}
+
+/// `FUN_0800A16C` - the value reply, with the "no value" case of the C.
+///
+/// The C skips the separator **and** the value when the value is NULL
+/// (`fw/modules/proxy.c`): `"<word> <interface> <op>\n"`.  No caller of the
+/// C passes NULL, but the case is part of the contract.
+pub fn resp_value_opt(op: u8, iface: &str, opname: &str, value: Option<&str>) {
     out_str(op_word(op));
     out_char(b' ');
     out_str(iface);
     out_char(b' ');
     out_str(opname);
-    out_char(b' ');
-    out_str(value);
+    if let Some(value) = value {
+        out_char(b' ');
+        out_str(value);
+    }
     out_char(b'\n');
 }
 
@@ -144,7 +155,12 @@ pub fn resp_message(level: u8, text: &str, extra: Option<&str>) {
 }
 
 /// `FUN_0800A1C8` - the greeting.
-pub fn resp_greeting(kv: &[(&str, &str)], msg: Option<&str>) {
+///
+/// The key/value block of the C is a NULL terminated array of pairs; a pair
+/// with a NULL value ends the greeting (the C writes the opening quote and
+/// then breaks out of the loop, so the closing quote is missing).  `None` is
+/// that NULL value.
+pub fn resp_greeting(kv: &[(&str, Option<&str>)], msg: Option<&str>) {
     out_str("call");
     out_char(b' ');
     out_str(":proxy");
@@ -158,8 +174,13 @@ pub fn resp_greeting(kv: &[(&str, &str)], msg: Option<&str>) {
         out_char(b'"');
         out_char(b':');
         out_char(b'"');
-        out_str(value);
-        out_char(b'"');
+        match value {
+            Some(value) => {
+                out_str(value);
+                out_char(b'"');
+            }
+            None => break, // the C: the value is NULL, the loop ends
+        }
     }
     if let Some(msg) = msg {
         out_char(b' ');

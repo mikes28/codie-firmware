@@ -96,7 +96,7 @@ SECTIONS
     __bss_end__ = _ebss;
   } >RAM
 
-  ._user_heap_stack :
+  ._user_heap_stack (NOLOAD) :
   {
     . = ALIGN(8);
     PROVIDE(end = .);

@@ -75,7 +75,8 @@ pub fn atoi(s: &str) -> i32 {
         i += 1;
     }
     if neg {
-        -v
+        // the C wraps around on the minimum value, the Rust would panic
+        v.wrapping_neg()
     } else {
         v
     }

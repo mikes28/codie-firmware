@@ -145,11 +145,11 @@ pub fn run() -> ! {
     // 5. the greeting
     proxy::resp_greeting(
         &[
-            ("ver", "0.5.0hw2.1"),
-            ("mat", "4"),
-            ("date", "1602121419"),
-            ("ttpms", "1000"),
-            ("+ack", "0"),
+            ("ver", Some("0.5.0hw2.1")),
+            ("mat", Some("4")),
+            ("date", Some("1602121419")),
+            ("ttpms", Some("1000")),
+            ("+ack", Some("0")),
         ],
         None,
     );
@@ -175,10 +175,4 @@ pub fn run() -> ! {
         app_drive::tick();
         app_lightsense::tick();
     }
-}
-
-/// The `main()` of the firmware.
-#[no_mangle]
-pub extern "C" fn main() -> ! {
-    run()
 }

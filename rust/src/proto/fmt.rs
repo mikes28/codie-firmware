@@ -90,35 +90,35 @@ pub fn num(radix: u32, v: u32) -> Buf<40> {
 
 /// `FUN_0800693C` - signed itoa.
 pub fn num_s(radix: u32, v: i32) -> Buf<40> {
-    let mag = (v as u32).wrapping_neg();
+    let mag = if v < 0 { (v as u32).wrapping_neg() } else { v as u32 };
     let (tmp, n) = uitoa(mag, radix);
     let mut out = Buf::<40>::new();
     if v < 0 {
         out.push(b'-');
     }
     for i in 0..n {
-        out.push(tmp[i]);
+        out.push(tmp[n - 1 - i]);
     }
     out
 }
 
 /// Decimal convenience wrapper (the C `fmt_int`).
 pub fn int(v: i32) -> Buf<16> {
-    let mag = (v as u32).wrapping_neg();
+    let mag = if v < 0 { (v as u32).wrapping_neg() } else { v as u32 };
     let (tmp, n) = uitoa(mag, 10);
     let mut out = Buf::<16>::new();
     if v < 0 {
         out.push(b'-');
     }
     for i in 0..n {
-        out.push(tmp[i]);
+        out.push(tmp[n - 1 - i]);
     }
     out
 }
 
 /// Decimal convenience wrapper, scaled by 10^frac (the C `fmt_fixed`).
 pub fn fixed(v: i32, frac: u32) -> Buf<24> {
-    let mag = (v as u32).wrapping_neg();
+    let mag = if v < 0 { (v as u32).wrapping_neg() } else { v as u32 };
     let mut out = Buf::<24>::new();
     if v < 0 {
         out.push(b'-');
@@ -133,7 +133,7 @@ pub fn fixed(v: i32, frac: u32) -> Buf<24> {
         }
         let (tmp, n) = uitoa(mag / div, 10);
         for i in 0..n {
-            out.push(tmp[i]);
+            out.push(tmp[n - 1 - i]);
         }
         out.push(b'.');
         let mut f = frac as i32 - 1;
@@ -148,7 +148,7 @@ pub fn fixed(v: i32, frac: u32) -> Buf<24> {
     } else {
         let (tmp, n) = uitoa(mag, 10);
         for i in 0..n {
-            out.push(tmp[i]);
+            out.push(tmp[n - 1 - i]);
         }
     }
     out

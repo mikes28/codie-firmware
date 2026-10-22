@@ -136,10 +136,23 @@ pub fn config_per_pin(port: u32, cfg: &PerPinCfg) {
 }
 
 /// `FUN_0800AAC8` - set the 4 bit alternate function field of one pin.
+///
+/// This is the flavour of `hwi_a_hal.c`: the field in the register is
+/// masked, the value is **not** (the original shifts the parameter in as
+/// it is).  The other helper of the original, [`set_af`], masks the value
+/// as well.
 pub fn set_afr(port: u32, pin: u8, afr: u8) {
     let shift = (pin & 7) as u32 * 4;
     let reg = port + GPIO_AFR0 + (pin as u32 >> 3) * 4;
-    mmio::rmw32(reg, |v| (v & !(0xFu32 << shift)) | ((afr as u32 & 0xF) << shift));
+    mmio::rmw32(reg, |v| (v & !(0xFu32 << shift)) | ((afr as u32) << shift));
+}
+
+/// `FUN_0800AAC8` as it is implemented in `hwi_b_hal.c` - the value of the
+/// alternate function is reduced to its four bits.
+pub fn set_af(port: u32, pin: u8, af: u8) {
+    let shift = (pin & 7) as u32 * 4;
+    let reg = port + GPIO_AFR0 + (pin as u32 >> 3) * 4;
+    mmio::rmw32(reg, |v| (v & !(0xFu32 << shift)) | ((af as u32 & 0xF) << shift));
 }
 
 /// `FUN_0800AABC` - read the input data register.

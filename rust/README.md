@@ -50,18 +50,34 @@ cd rust
 cargo test
 ```
 
-The tests run the **unmodified firmware** on the host:
+The tests run the **unmodified firmware** on the host, against four independent
+references:
 
 * `tests/protocol.rs` - the protocol layer against the exact bytes of the
   original (the Rust counterpart of `tools/protocol_test.c`).
 * `tests/simulator.rs` - the whole firmware against a model of the
   peripherals (the Rust counterpart of `tools/host_sim.c`): the boot output,
   the replies, the motor duty registers and the baud divisors.
+* `tests/binary.rs` - the port against the **dumped binary**: the interface
+  table of the original (flash `0x0800D164`), its version block
+  (`0x0800C65C`), its vector table, its IRQ handlers and the peripheral base
+  addresses it uses.
+* `tests/binary_ops.rs` - every op the original answers
+  (`analysis/INTERFACE_OPS.txt`, extracted from the dump) with the exact
+  bytes of the answer.
+* `tests/c_equivalence.rs` - the port against the **C firmware**: the same
+  scenario, the same bytes.  The facts are captured from the C simulator
+  (`tools/capture_c_sim.sh` -> `tests/data/c_sim.txt`) and replayed.
 
 The switch between the real peripherals and the model is in
 [`src/mmio.rs`](src/mmio.rs): on the target the accesses are volatile loads
 and stores, on the host they end up in [`src/sim/mod.rs`](src/sim/mod.rs).
 No code is duplicated for the tests.
+
+Two documents hold the proof of the parity with the C tree:
+[`PARITY.md`](PARITY.md) (the function inventory) and
+[`HAL_PARITY.md`](HAL_PARITY.md) (the register by register review of the
+shared layers).
 
 ## What is where
 

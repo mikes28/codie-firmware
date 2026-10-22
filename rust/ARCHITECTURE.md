@@ -32,9 +32,10 @@ flowchart TD
 
     subgraph host["host (cargo test)"]
         SIM["sim/mod.rs<br/>the model of the peripherals"]
-        TESTS["tests/protocol.rs<br/>tests/simulator.rs"]
+        TESTS["tests/protocol.rs<br/>tests/simulator.rs<br/>tests/binary.rs<br/>tests/binary_ops.rs<br/>tests/c_equivalence.rs"]
         TESTS --> SIM
         TESTS --> BOOT
+        TESTS -. "reads" .-> DUMP[("stm32_flash.bin<br/>the original firmware")]
     end
 
     MMIO -. "on the target: volatile load/store" .-> HW[("the STM32")]
@@ -144,12 +145,17 @@ sequenceDiagram
 | `src/hal/util.rs` | - | the millisecond tick, the busy wait, the watchdog, `is_on`, `atoi`, `parse_args` | `hwi_b_hal.c` |
 | `src/proto/proxy.rs` | `Iface`, the registry | the request parser, the interface registry, the three reply helpers | `proxy.c` |
 | `src/proto/fmt.rs` | `Buf<N>` | the number formatting (`FUN_080068D4` / `FUN_0800693C`) | `proxy.c` |
+| `src/proto/catalog.rs` | the string catalog | the protocol strings as NUL terminated literals in `.rodata`, so that they stay individually recoverable in the image like the string table of the original | the string table of the original |
 | `src/system.rs` | the millisecond tick | the clock tree (`FUN_08002958`), the SysTick | `system_stm32g0.c` |
 | `src/startup.rs` | the vector table | the 48 vectors, the reset handler, the default handler | `startup_stm32g071.c`, `startup_handlers.c`, `startup_vectors.h` |
 | `src/boot.rs` | the reset magic | `main()`: the boot sequence and the main loop | `main.c` |
 | `src/sim/mod.rs` | the model | the model of the USARTs, the ADC and the timer counters (host only) | `tools/host_sim.c` |
 | `tests/protocol.rs` | - | the protocol against the exact bytes of the original | `tools/protocol_test.c` |
 | `tests/simulator.rs` | - | the whole firmware against the model of the peripherals | `tools/host_sim.c` |
+| `tests/binary.rs` | - | the port against the **dump**: the interface table, the version block, the vector table, the register map | the analysis of the dump |
+| `tests/binary_ops.rs` | - | the ops of the original and the exact bytes of their answers | `analysis/INTERFACE_OPS.txt` |
+| `tests/c_equivalence.rs` | - | the port against the **C firmware**: the same scenario, the same bytes | `tools/host_sim.c` + `rust/tests/data/c_sim.txt` |
+| `tests/data/c_sim.txt` | the golden facts | the observable behaviour of the C firmware, captured from the C simulator | `tools/capture_c_sim.sh` |
 
 ---
 
@@ -223,7 +229,23 @@ the original binary (the literal pool of its output primitives holds
 
 ---
 
-## 8. The quirks that are reproduced on purpose
+## 8. The oracles of the port
+
+The port is checked against four independent references:
+
+| oracle | what it checks | where |
+|---|---|---|
+| **the golden bytes** | the protocol layer: the greeting, the value reply, the error messages, the number formatting | `tests/protocol.rs` (the counterpart of `tools/protocol_test.c`) |
+| **the peripheral model** | the whole firmware: the boot output, the replies, the motor duty registers, the baud divisors | `tests/simulator.rs` (the counterpart of `tools/host_sim.c`) |
+| **the dump** | the original binary: the interface table at `0x0800D164`, the version block at `0x0800C65C`, the vector table, the ops of every interface, the register map | `tests/binary.rs`, `tests/binary_ops.rs` |
+| **the C firmware** | the same scenario, the same bytes on the command link, the same register values - the facts are captured from the C simulator and replayed | `tests/c_equivalence.rs` + `tests/data/c_sim.txt` |
+
+The dump is the ground truth, the C firmware is the reference implementation,
+the golden bytes are the contract of the protocol.
+
+---
+
+## 9. The quirks that are reproduced on purpose
 
 These are not bugs of the port - they are the behaviour of the original.
 

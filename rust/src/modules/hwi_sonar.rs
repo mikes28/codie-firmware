@@ -70,6 +70,15 @@ pub fn init() {
     proxy::register(proxy::Iface { name: "hwiSonar", handler: handler });
 }
 
+/// `sonar_busy` - from FUN_08009094: the original returns the "measurement
+/// running" flag.
+///
+/// The C keeps it in the static `s_busy` (the original binary keeps it in
+/// `_DAT_2000085C`); the Rust port keeps it in the module state.
+pub fn busy() -> bool {
+    S.get().busy != 0
+}
+
 /// `hwiSonar_echo_us`
 pub fn echo_us() -> i32 {
     if S.get().busy == 0 {
@@ -166,7 +175,13 @@ fn sonar_hw_init(capture_buf: u32) {
         ccer3: 0,
         ccr: 0,
         ccer4: 0,
-        ccer5: 0x0008,
+        // NOTE: the C reconstruction uses 0u here and so does the original
+        // binary (FUN_08008F14 leaves the whole `timer_chan_t` zeroed by
+        // FUN_0800b1d8 and only sets ccmr / ccer / ccr / cr2).  The value
+        // must stay 0: `timer::channel_cfg` ORs it into CCER, and 0x0008
+        // would enable channel 2 of TIM17 (CC2E), which the original
+        // never does.
+        ccer5: 0,
         cr2: 0x0100,
         cr2b: 0,
     };

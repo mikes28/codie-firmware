@@ -118,6 +118,10 @@ pub fn arpe(tim: u32, on: bool) {
 /// bit of the channels 1..4.
 pub fn ocpe(tim: u32, ch: u8, on: bool) {
     let reg = if ch <= 2 { tim + TIM_CCMR1 } else { tim + TIM_CCMR2 };
+    // the C shifts by ((ch - 1) * 8 + 3) - with a channel outside 1..4 that
+    // would be an undefined shift, so the channel is clamped here (the C
+    // never calls it with another value)
+    let ch = ch.clamp(1, 4);
     let bit: u16 = if ch <= 2 {
         1u16 << ((ch as u32 - 1) * 8 + 3)
     } else {
@@ -194,12 +198,17 @@ pub fn channel_cfg(tim: u32, ch: u8, cfg: &ChanCfg) {
 /// (0x40), so a write also clears the next compare register.  Reproduced
 /// verbatim.
 pub fn pwm_set(tim: u32, ch: u8, ccr: u32) {
+    // the C writes 32 bits at TIMx_CCR1 + 4 * (ch - 1); with a channel
+    // outside 1..4 that would be a negative offset, so it is clamped here
+    let ch = ch.clamp(1, 4);
     mmio::w32(tim + TIM_CCR1 + 4 * (ch as u32 - 1), ccr);
 }
 
 /// `FUN_0800B244` - the channel enable bits of `CCER`.
 pub fn ccer(tim: u32, ch: u8, on: bool) {
-    let bit: u16 = 1u16 << ((ch as u32 - 1) * 4);
+    // the C shifts by (ch - 1) * 4; with a channel outside 1..4 that would
+    // be an undefined shift, so the channel is clamped here
+    let bit: u16 = 1u16 << ((ch.clamp(1, 4) as u32 - 1) * 4);
     mmio::rmw16(tim + TIM_CCER, |v| if on { v | bit } else { v & !bit });
 }
 

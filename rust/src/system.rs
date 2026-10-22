@@ -111,7 +111,7 @@ pub fn system_init() {
 /// registers at the start of the "reset cause" path).
 pub fn sys_tick_init(reload: u32) {
     mmio::w32(SYSTICK + SYSTICK_CTRL, 0);
-    mmio::w32(SYSTICK + SYSTICK_LOAD, reload - 1);
+    mmio::w32(SYSTICK + SYSTICK_LOAD, reload.wrapping_sub(1));
     mmio::w32(SYSTICK + SYSTICK_VAL, 0);
     mmio::w32(SYSTICK + SYSTICK_CTRL, 7); // enable, tick interrupt, processor clock
 }

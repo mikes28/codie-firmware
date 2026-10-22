@@ -105,6 +105,63 @@ static usart_t *usart_of(uint32_t base)
     return NULL;
 }
 
+/* --- the facts mode --------------------------------------------------- *
+ * With C_SIM_FACTS=<file> the simulator writes the observable facts of the
+ * run (the bytes on the two links, the register values) to that file in a
+ * machine readable "key: value" form.  The Rust port is compared with
+ * those facts by rust/tests/c_equivalence.rs. */
+static FILE *g_facts;
+static int   g_fact_cmds;
+
+/* the real firmware functions behind the wrappers: in the facts mode the
+ * firmware itself does the register writes, so that the recorded values
+ * are the ones of the C code in fw/ (and of the original binary) and not
+ * those of the model of the simulator */
+extern void __real_hwi_usart_init(uint32_t base, uint32_t baud, uint8_t stop_bits);
+extern void __real_hwi_usart_enable(uint32_t base);
+
+static void facts_bytes(const char *key, const char *buf, int len)
+{
+    int i;
+
+    if (g_facts == NULL) {
+        return;
+    }
+    fprintf(g_facts, "%s: ", key);
+    for (i = 0; i < len; i++) {
+        fprintf(g_facts, "%02x", (unsigned char)buf[i]);
+    }
+    fprintf(g_facts, "\n");
+}
+
+static void facts_num(const char *key, unsigned long v)
+{
+    if (g_facts != NULL) {
+        fprintf(g_facts, "%s: %lu\n", key, v);
+    }
+}
+
+/* the bytes of one command: what came out of the command link and what
+ * went into the AT link (the link to the BLE module) */
+static void facts_cmd(const char *name, usart_t *cmd_link, usart_t *at_link)
+{
+    char key[64];
+
+    /* the facts are only written in the facts mode, but the buffers are
+     * always cleared: the transcript mode relies on it (the check of a
+     * command that must not be answered looks at an empty buffer) */
+    if (g_facts != NULL) {
+        g_fact_cmds++;
+        fprintf(g_facts, "cmd.%d.name: %s\n", g_fact_cmds, name);
+        snprintf(key, sizeof(key), "cmd.%d.cmdlink.tx", g_fact_cmds);
+        facts_bytes(key, cmd_link->tx, cmd_link->tx_len);
+        snprintf(key, sizeof(key), "cmd.%d.atlink.tx", g_fact_cmds);
+        facts_bytes(key, at_link->tx, at_link->tx_len);
+    }
+    cmd_link->tx_len = 0;
+    at_link->tx_len = 0;
+}
+
 /* --- wrapped firmware entry points --- */
 void __wrap_hwi_usart_init(uint32_t base, uint32_t baud, uint8_t stop_bits);
 void __wrap_hwi_usart_enable(uint32_t base);
@@ -126,6 +183,18 @@ void __wrap_hwi_usart_init(uint32_t base, uint32_t baud, uint8_t stop_bits)
 {
     usart_t *u = usart_of(base);
     if (!u) return;
+    if (g_facts != NULL) {
+        /* the facts mode: let the firmware compute the divisor and do the
+         * register writes, then read back what it wrote.  The model of the
+         * transcript (96000000/baud, truncated) is a simplification: the
+         * firmware rounds the divisor up (FUN_0800B3FC). */
+        __real_hwi_usart_init(base, baud, stop_bits);
+        u->brr = REG16(base + U_BRR);
+        u->cr1 = REG16(base + U_CR1);
+        u->cr2 = REG16(base + U_CR2);
+        u->cr3 = REG16(base + U_CR3);
+        return;
+    }
     /* mirror the real register writes so the firmware's own state is sane */
     REG16(base + U_CR1) = 0;
     REG16(base + U_CR2) = (uint16_t)(((uint16_t)stop_bits & 1u) << 13);
@@ -139,6 +208,12 @@ void __wrap_hwi_usart_enable(uint32_t base)
 {
     usart_t *u = usart_of(base);
     if (!u) return;
+    if (g_facts != NULL) {
+        __real_hwi_usart_enable(base);
+        u->enabled = 1;
+        u->cr1 = REG16(base + U_CR1);
+        return;
+    }
     u->enabled = 1;
     u->cr1 |= 0x0300u;                 /* TE | RE */
     REG16(base + U_CR1) = (uint16_t)u->cr1;
@@ -293,6 +368,15 @@ static void *model_thread(void *arg)
 int main(void)
 {
     pthread_t th;
+    const char *facts_path = getenv("C_SIM_FACTS");
+
+    if (facts_path != NULL && facts_path[0] != '\0') {
+        g_facts = fopen(facts_path, "w");
+        if (g_facts == NULL) {
+            perror(facts_path);
+            return 1;
+        }
+    }
 
     map_peripherals();
 
@@ -358,6 +442,10 @@ int main(void)
                  "BLE-boot\ncall :proxy greeting \"ver\":\"0.5.0hw2.1\" \"mat\":\"4\" "
                  "\"date\":\"1602121419\" \"ttpms\":\"1000\" \"+ack\":\"0\"\n");
         check("boot: BLE-boot + greeting", want, s_u4.tx, s_u4.tx_len);
+        if (g_facts != NULL) {
+            facts_bytes("boot.cmdlink.tx", s_u4.tx, s_u4.tx_len);
+            facts_bytes("boot.atlink.tx", s_u3.tx, s_u3.tx_len);
+        }
         s_u4.tx_len = 0;
         check("boot: the AT link stays quiet", "", s_u3.tx, s_u3.tx_len);
         s_u3.tx_len = 0;
@@ -368,47 +456,65 @@ int main(void)
     feed(&s_u4, "get drvBattery voltage\n");
     usleep(150000);
     check_contains("get drvBattery voltage", "set drvBattery voltage 0\n", s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("get drvBattery voltage", &s_u4, &s_u3);
 
     feed(&s_u4, "get drvBattery chargeStat\n");
     usleep(150000);
     check("get drvBattery chargeStat", "set drvBattery chargeStat 1\n", s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("get drvBattery chargeStat", &s_u4, &s_u3);
 
     feed(&s_u4, "get nosuchiface op\n");
     usleep(150000);
     check("unknown interface", "call :proxy message err No interface:nosuchiface\n",
           s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("get nosuchiface op", &s_u4, &s_u3);
 
     feed(&s_u4, "garbage\n");
     usleep(150000);
     check("invalid command", "call :proxy message err Invalid command!\n",
           s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("garbage", &s_u4, &s_u3);
 
     feed(&s_u4, "set hwiDrive dutyA 200\n");
     usleep(150000);
     check("set hwiDrive dutyA (no reply)", "", s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("set hwiDrive dutyA 200", &s_u4, &s_u3);
     checku("set hwiDrive dutyA -> TIM3 CCR1", 0x200u, REG32(TIM3 + 0x34));
 
     feed(&s_u4, "set hwiDrive dutyB 100\n");
     usleep(150000);
     check("set hwiDrive dutyB (no reply)", "", s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("set hwiDrive dutyB 100", &s_u4, &s_u3);
     checku("set hwiDrive dutyB -> TIM3 CCR3", 0x100u, REG32(TIM3 + 0x3C));
 
     feed(&s_u4, "call drvBattery hwInit\n");
     usleep(150000);
     check("call drvBattery hwInit (no reply)", "", s_u4.tx, s_u4.tx_len);
-    s_u4.tx_len = 0;
+    facts_cmd("call drvBattery hwInit", &s_u4, &s_u3);
 
     printf("\n=== the AT channel (USART3) ===\n");
     printf("  USART3 BRR=%u (14400 @96MHz)  USART4 BRR=%u (460800 @96MHz)\n",
            s_u3.brr, s_u4.brr);
-    checku("AT link BRR = 96e6/14400", 6666u, s_u3.brr);
+    checku("AT link BRR = 96e6/14400",
+           (g_facts != NULL) ? 6667u : 6666u, s_u3.brr);
     checku("command link BRR = 96e6/460800", 208u, s_u4.brr);
+    if (g_facts != NULL) {
+        /* the registers the firmware touched */
+        facts_num("reg.tim3.ccr1", (unsigned long)REG32(TIM3 + 0x34));
+        facts_num("reg.tim3.ccr2", (unsigned long)REG32(TIM3 + 0x38));
+        facts_num("reg.tim3.ccr3", (unsigned long)REG32(TIM3 + 0x3C));
+        facts_num("reg.tim3.ccr4", (unsigned long)REG32(TIM3 + 0x40));
+        facts_num("reg.tim3.arr",  (unsigned long)REG32(TIM3 + 0x2C));
+        facts_num("reg.tim3.psc",  (unsigned long)REG16(TIM3 + 0x28));
+        facts_num("reg.usart3.brr", (unsigned long)s_u3.brr);
+        facts_num("reg.usart4.brr", (unsigned long)s_u4.brr);
+        facts_num("reg.usart3.cr2", (unsigned long)REG16(USART3 + U_CR2));
+        facts_num("reg.usart4.cr2", (unsigned long)REG16(USART4 + U_CR2));
+        facts_num("reg.usart3.cr3", (unsigned long)REG16(USART3 + U_CR3));
+        facts_num("reg.usart4.cr3", (unsigned long)REG16(USART4 + U_CR3));
+        fclose(g_facts);
+        g_facts = NULL;
+    }
 
     printf("\n%s\n", g_fail ? "SOME CHECKS FAILED" : "all behavioural checks passed");
     fflush(stdout);

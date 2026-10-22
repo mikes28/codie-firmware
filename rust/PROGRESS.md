@@ -1,7 +1,7 @@
 # Progress of the Rust port
 
-**Checkpoint of the Rust port of the Codie robot firmware** (`rust/`), the
-C reference implementation is `fw/` (untouched, read only).
+**State of the Rust port of the Codie robot firmware** (`rust/`), the C
+reference implementation is `fw/` (untouched, read only).
 
 ---
 
@@ -11,39 +11,71 @@ C reference implementation is `fw/` (untouched, read only).
 |---|---|---|
 | crate skeleton, linker script, cargo config | `Cargo.toml`, `.cargo/config.toml`, `linker/stm32g071rb.ld` | done |
 | register access (volatile / simulated) | `src/mmio.rs` | done |
-| the low level HAL | `src/hal/{addr,gpio,timer,usart,adc,dma,rcc,nvic,ring,util}.rs` | done |
-| the protocol layer | `src/proto/{proxy,fmt}.rs` | done |
+| the low level HAL | `src/hal/{addr,gpio,timer,usart,adc,dma,rcc,nvic,ring,util}.rs` | done, reviewed register by register (`HAL_PARITY.md`) |
+| the protocol layer | `src/proto/{proxy,fmt,catalog}.rs` | done, reviewed (`HAL_PARITY.md`) |
 | the module state helper | `src/state.rs` | done |
-| the clock tree and the tick | `src/system.rs` | done |
+| the clock tree and the tick | `src/system.rs` | done, reviewed |
 | the peripheral model (host only) | `src/sim/mod.rs` | done |
-| `hwiAdc` | `src/modules/hwi_adc.rs` | done |
-| `hwiDrive` | `src/modules/hwi_drive.rs` | done |
-| `hwiEnc` | `src/modules/hwi_enc.rs` | done |
-| `hwiSonar` | `src/modules/hwi_sonar.rs` | done |
-| `hwiLed` | `src/modules/hwi_led.rs` | done |
-| `hwiBuzz` | `src/modules/hwi_buzz.rs` | done |
-| `hwiMic` | `src/modules/hwi_mic.rs` | done |
-| `hwiLine` | `src/modules/hwi_line.rs` | done |
-| `hwiPower` | `src/modules/hwi_power.rs` | done |
-| `hwiLightSense` | `src/modules/hwi_lightsense.rs` | done |
-| `bleCom` (both serial links, `out_str`/`out_char`) | `src/modules/ble_com.rs` | done |
-| `drvBattery` | `src/modules/drv_battery.rs` | done |
-| `appSys` | `src/modules/app_sys.rs` | done |
-| `appDrive` | `src/modules/app_drive.rs` | done |
-| `appLights` | `src/modules/app_lights.rs` | done |
-| `appLightSense` | `src/modules/app_lightsense.rs` | done |
-| the vector table and the reset handler | `src/startup.rs` | ported, in the build/fix loop |
-| `main()` - the boot sequence and the main loop | `src/boot.rs` | ported, in the build/fix loop |
+| the 16 interfaces | `src/modules/*.rs` | done, the function parity is proven (`PARITY.md`) |
+| the vector table and the reset handler | `src/startup.rs` | done |
+| `main()` - the boot sequence and the main loop | `src/boot.rs` | done |
 | the firmware binary target | `src/main.rs` | done |
-| the tests | `tests/protocol.rs`, `tests/simulator.rs` | written, not yet green |
-| the documentation | `README.md`, `ARCHITECTURE.md` | done |
+| the tests | `tests/{protocol,simulator,binary,binary_ops,c_equivalence}.rs` | done, 7 tests green |
+| the documentation | `README.md`, `ARCHITECTURE.md` (the flow graph), `PARITY.md`, `HAL_PARITY.md` | done |
 
-**Open at this checkpoint:** make the crate compile, make the tests pass and
-produce the flashable image.  That work is running (agent `MakeItRun`).
+**Everything is green:**
+
+```
+cargo check --all-targets      clean, no warnings
+cargo test                     7 passed, 0 failed
+cargo build --release --target thumbv6m-none-eabi   -> rust/build/fw.bin (15 456 B)
+python3 tools/verify_features.py rust/build/fw.bin  -> OK: every protocol visible
+                                                        string of the original is present
+```
 
 ---
 
-## 2. How to build and test
+## 2. The four oracles
+
+The port is checked against four independent references:
+
+| oracle | what it proves | where |
+|---|---|---|
+| **the golden bytes** | the protocol layer is byte exact (the greeting, the value reply, the error messages, the number formatting) | `tests/protocol.rs` |
+| **the peripheral model** | the whole firmware: the boot output, the replies, the motor duty registers, the baud divisors | `tests/simulator.rs` |
+| **the dump** | the port against the **original binary**: the interface table at `0x0800D164` (the same 16 names in the same order), the version block at `0x0800C65C`, the vector table (the stack pointer, the reset vector, the IRQ handlers), the ops of every interface with their exact answer bytes, the peripheral base addresses (every one of them appears in the dump) | `tests/binary.rs`, `tests/binary_ops.rs` |
+| **the C firmware** | the same scenario, the same bytes: the facts are captured from the C simulator (`tools/host_sim.c`) and replayed by the port | `tests/c_equivalence.rs` + `tests/data/c_sim.txt` |
+
+The dump is the ground truth, the C firmware is the reference implementation,
+the golden bytes are the contract of the protocol.
+
+---
+
+## 3. The function parity with the C tree
+
+[`PARITY.md`](PARITY.md) is the proof: one row per C function (238 symbols,
+199 of them defined in the tree and 40 weak aliases), with the Rust
+counterpart and the state.  **No behaviour of the C is missing in the port.**
+The gaps that were found and closed:
+
+* `hwi_sonar`: the compare register configuration of the capture channel had
+  `ccer5 = 0x0008` (that would have enabled the channel 2 of TIM17); the C
+  has `0` and the binary confirms it.
+* `hwi_sonar`: the "measurement running" flag (`sonar_busy` of the C) had no
+  counterpart - `hwi_sonar::busy()` now.
+* `resp_value` / `resp_greeting`: the C can be called with a NULL value (the
+  separator and the value are then left out, the greeting ends without the
+  closing quote).  The Rust now expresses that case (`resp_value_opt`, the
+  `Option` values of the greeting).
+* `gpio::set_afr`: the two helpers of the C are not the same (the one of
+  `hwi_a_hal` does not mask the value, the one of `hwi_b_hal` does) - the
+  Rust has both now.
+* the debug build aborted where the C wraps around (the channel arithmetic
+  of the timers, the `i32::MIN` of `atoi`, the reload of the SysTick).
+
+---
+
+## 4. How to build and test
 
 ```bash
 cd rust
@@ -68,32 +100,33 @@ The image is linked with `linker/stm32g071rb.ld` (128 KB flash @ `0x08000000`,
 16 KB RAM @ `0x20000000`, the stack at `0x20004000`) - the same memory map as
 the C rebuild.  `build.sh` does build + objcopy + (optionally) flash.
 
-The C tree is **not** touched by any of this.
+The C tree is **not** touched by any of this.  The only change outside
+`rust/` is `tools/host_sim.c`: the C simulator got a "facts mode"
+(`C_SIM_FACTS=<file>`) that writes the observable behaviour of the C firmware
+into the fixture of the equivalence test.  The default transcript of
+`tools/run_sim.sh` is unchanged.
 
 ---
 
-## 3. The architecture
+## 5. The size
 
-[`ARCHITECTURE.md`](ARCHITECTURE.md) has the flow graph: the layers, the boot
-sequence, the main loop, the request path, the file table, the 16 interfaces,
-the interrupts, the memory map and the list of the reproduced quirks.
+| image | bytes |
+|---|---|
+| the dumped original (the firmware part of the flash) | 54 820 |
+| the C rebuild | 12 608 |
+| the **Rust** rebuild | 15 456 |
 
-The short version:
-
-```text
-startup.rs  -> boot.rs -> modules/*  -> proto/proxy.rs -> proto/fmt.rs
-                    |         |              |
-                    |         +-> hal/* ------+-> mmio.rs -> (the STM32)
-                    +-> system.rs
-```
-
-`mmio.rs` is the only switch between the firmware and the test world: on the
-target it is a volatile load/store, on the host it goes into the model of
-`src/sim/`.  No firmware code is duplicated for the tests.
+The Rust image is 2 848 bytes bigger than the C one (+23 %): about 600 B are
+the protocol strings, which the Rust carries twice - once as the `&str`
+literals of the code and once NUL terminated in `src/proto/catalog.rs`, so
+that every string stays individually recoverable in the flash exactly like
+the string table of the original (that is what makes
+`tools/verify_features.py` pass on the Rust image).  The rest is the `no_std`
+machinery and the bigger `core` code.
 
 ---
 
-## 4. The deliberate differences to the C reconstruction
+## 6. The deliberate differences to the C reconstruction
 
 | what | why |
 |---|---|
@@ -101,30 +134,9 @@ target it is a volatile load/store, on the host it goes into the model of
 | `hwiPower::vsens()` reads back PC15 | the C declares `hwiPower_vsens()` in `codie.h` but never implements it; the reading of the "Vsens" line is the natural meaning.  It is not used by the protocol |
 | the `opname == NULL` guards of the C handlers are gone | the Rust dispatcher always hands over a non empty op name |
 | the 32 bit compare register writes of `hal::timer::pwm_set` and the "whole byte" output type of `hal::gpio::config` are kept as they are | they are the quirks of the original (the C helper of the `hwi_a_hal` slice clears the GPIO bits at offset `0x28`, the one of the `hwi_b_hal` slice at `0x1C`) |
+| the original shifts the output type of the GPIO by `2*pin` for the even pins (the C and the Rust use `pin`) | the decompilation of `FUN_0800A964` in `analysis/decomp/ALL.c` is wrong here; the review in `HAL_PARITY.md` derived the truth from the machine code of the dump.  The port follows the C (the reconstruction) |
 
----
-
-## 5. What is verified
-
-* `cargo check --all-targets` - the whole crate, the library, the binary and
-  both test files.
-* `cargo test`:
-  * `tests/protocol.rs` - the protocol layer against the exact bytes of the
-    original (the greeting, the value reply, the unknown interface, the
-    invalid command, the command buffer overflow, the message with the extra
-    field, the log level words) plus the number formatting (hexadecimal, the
-    signed variant, the fixed point variant).  The Rust counterpart of
-    `tools/protocol_test.c`.
-  * `tests/simulator.rs` - the whole firmware against the model of the
-    peripherals: the boot output ("BLE-boot" + the greeting) on the command
-    link, the quiet AT link, the replies of `drvBattery` and of the error
-    paths, the motor duty registers (`TIM3_CCR1 = 0x200`, `TIM3_CCR3 = 0x100`)
-    and the baud divisors of the two links.  The Rust counterpart of
-    `tools/host_sim.c`.
-* the image check of the original: `python3 tools/verify_features.py <image>`
-  - every protocol visible string of the original has to be in the image.
-
-## 6. What is still open
+## 7. What is still open
 
 * the on-hardware test (flash the image and check that the robot boots and
   answers over the command link) - the same open point as the C rebuild.

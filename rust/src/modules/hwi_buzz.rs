@@ -80,7 +80,7 @@ pub fn init() {
         pull: gpio::PULL_NONE,
     };
     gpio::config_per_pin(BUZZ_PORT, &cfg);
-    gpio::set_afr(BUZZ_PORT, BUZZ_PIN, 2); // AF2 = TIM16_CH1
+    gpio::set_af(BUZZ_PORT, BUZZ_PIN, 2); // AF2 = TIM16_CH1
 
     timer::pwm_init(BUZZ_TIMER, BUZZ_PSC, 0, 1);
     let s = S.get();

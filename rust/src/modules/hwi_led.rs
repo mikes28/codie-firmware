@@ -60,7 +60,7 @@ pub fn init() {
             pull: gpio::PULL_NONE,
         };
         gpio::config_per_pin(LED_PORT[i], &cfg);
-        gpio::set_afr(LED_PORT[i], LED_PIN[i], 2); // AF2 = TIM15
+        gpio::set_af(LED_PORT[i], LED_PIN[i], 2); // AF2 = TIM15
         if i > 0 {
             timer::pwm_init(LED_TIMER, LED_PSC, LED_ARR, (i + 1) as u8);
         }

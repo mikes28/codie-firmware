@@ -23,19 +23,28 @@ pub union Vector {
 /// The initial stack pointer: top of the 16 KB RAM (0x20004000).
 const SP_ADDR: usize = 0x2000_4000usize;
 
+/// The initial stack pointer of the vector table: the top of the 16 KB RAM.
+pub const INITIAL_SP: usize = SP_ADDR;
+
+// The linker symbols of the C runtime.
+//
+// Only the target build has them - the host build of the tests has no
+// `.data` to copy and no `.bss` to clear.
+#[cfg(target_os = "none")]
+extern "C" {
+    static _sidata: u32;
+    static _sdata: u32;
+    static _edata: u32;
+    static _sbss: u32;
+    static _ebss: u32;
+}
+
 /// `Reset_Handler` - set up the C runtime and call `main()`.
 #[no_mangle]
 pub unsafe extern "C" fn Reset_Handler() {
-    extern "C" {
-        static _sidata: u32;
-        static _sdata: u32;
-        static _edata: u32;
-        static _sbss: u32;
-        static _ebss: u32;
-    }
-
     // Copy .data from flash (_sidata -> _sdata.._edata) and zero .bss
     // (_sbss.._ebss), exactly like the C startup.
+    #[cfg(target_os = "none")]
     unsafe {
         let mut src = &_sidata as *const u32;
         let mut dst = &_sdata as *const u32 as *mut u32;
@@ -52,9 +61,10 @@ pub unsafe extern "C" fn Reset_Handler() {
             *dst = 0;
             dst = dst.add(1);
         }
+
+        crate::system::system_init();
     }
 
-    crate::system::system_init();
     crate::boot::run();
 }
 

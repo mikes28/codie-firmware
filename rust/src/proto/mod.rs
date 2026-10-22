@@ -2,4 +2,5 @@
 //! helpers and the number formatting.
 
 pub mod fmt;
+pub mod catalog;
 pub mod proxy;
