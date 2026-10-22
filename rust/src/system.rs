@@ -95,8 +95,13 @@ pub fn system_init() {
         mmio::rmw32(RCC + RCC_CFGR, |v| v & 0xFFC0_7FFF);
         mmio::rmw32(RCC + RCC_CFGR, |v| v | 0x0013_0000);
         mmio::rmw32(RCC + RCC_CR, |v| v | 0x0100_0000);
-        while mmio::r32(RCC + RCC_CR) & 0x0200_0000 == 0 {
-            // wait for the PLL/oscillator ready flag
+        while mmio::r32(RCC + RCC_CR) & 0x0400_0000 == 0 {
+            // wait for the PLL/oscillator ready flag.  The dump tests bit 22
+            // (register 0x08002a17: `lsls r2, r3, #18` -> 0x0400_0000, then
+            // `tst r1, r2` / `beq`).  The first version of this wait tested
+            // bit 25 - the same function clears that bit a dozen
+            // instructions earlier - so the firmware would have hung here
+            // and never brought up a single peripheral.
             core::hint::spin_loop();
         }
         mmio::rmw32(RCC + RCC_CFGR, |v| (v & !0x0000_0003) | 0x0000_0002); // SYSCLK = PLL

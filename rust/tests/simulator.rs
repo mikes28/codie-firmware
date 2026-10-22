@@ -206,3 +206,75 @@ fn the_firmware_behaves_like_the_original() {
     drop(firmware);
     drop(tick);
 }
+
+/// The control registers the port writes into the two links.
+///
+/// The original (`FUN_0800B3FC`, called from `FUN_08007F7C` and
+/// `FUN_08009A04`) enables the transmitter and the receiver: `CR1 |= 0x000C`
+/// (bits 2 and 3: RE + TE).  The C reconstruction and the first version of
+/// the port wrote `0x0300` there instead (PEIE | PS), which would have left
+/// the link dead on the robot - the mistake was invisible in the C harness
+/// because it wraps the USART primitives with `ld --wrap` and never looks at
+/// the control registers.
+///
+/// The values of the two links (both taken from the dump):
+///   USART3 (the AT link)  : CR2 = 0x2000 (two stop bits), CR3 = 0x300
+///   USART4 (the command)  : CR2 = 0, CR3 = 0
+#[test]
+fn the_control_registers_enable_the_transmitter_and_the_receiver() {
+    codie::sim::reset();
+    codie::modules::ble_com::init();
+
+    // CR1 of both links: RE (bit 2) and TE (bit 3) set, and UE (bit 0)
+    for usart in [USART3, USART4] {
+        let cr1 = codie::sim::read32(usart + 0x00) & 0xFFFF;
+        assert_eq!(cr1 & 0x000C, 0x000C, "CR1 of 0x{:08X}: RE+TE not set", usart);
+        assert_eq!(cr1 & 0x0001, 0x0001, "CR1 of 0x{:08X}: UE not set", usart);
+    }
+
+    // the values the dump's callers pass
+    assert_eq!(codie::sim::read32(USART3 + 0x04) & 0xFFFF, 0x2000, "CR2 of the AT link");
+    assert_eq!(codie::sim::read32(USART3 + 0x08) & 0xFFFF, 0x0300, "CR3 of the AT link");
+    assert_eq!(codie::sim::read32(USART4 + 0x04) & 0xFFFF, 0x0000, "CR2 of the command link");
+    assert_eq!(codie::sim::read32(USART4 + 0x08) & 0xFFFF, 0x0000, "CR3 of the command link");
+}
+
+/// The clock setup must not wait for a flag it clears itself.
+///
+/// `FUN_08002958` (at 0x08002958) waits for bit 22 of the RCC CR
+/// (`0x0400_0000`) after switching the PLL on; the register trace it leaves
+/// also *clears* bit 25 (`CR &= 0xFFFBFFFF`) earlier in the same function.
+/// The first version of this port waited for bit 25 - a flag that can never
+/// be set again - which hangs the firmware before any peripheral comes up.
+/// That is invisible in the host model, because `system_init` is not called
+/// there (there is no real PLL): it only bites on the robot.
+#[test]
+fn the_clock_setup_waits_for_the_flag_the_dump_waits_for() {
+    codie::sim::reset();
+
+    // the model of the RCC: fill it with the state a real chip has once the
+    // PLL is on (bit 16 = the PLL on, bit 22 = the PLL ready - the flag the
+    // original waits for, bit 17 = PLLRDY for the first bounded spin)
+    codie::sim::write32(codie::hal::addr::RCC + 0x00, 0x0001_0000 | 0x0400_0000);
+    codie::sim::write32(codie::hal::addr::RCC + 0x04, 0x0000_0008); // CFGR: SWS = PLL
+    // the flash: the latency writes must not be read back as a hang
+    codie::sim::write32(codie::hal::addr::FLASH + 0x00, 0);
+
+    // the firmware's clock setup must terminate - if it waited for a flag the
+    // model never sets, this would never return
+    codie::system::system_init();
+
+    let cr = codie::sim::read32(codie::hal::addr::RCC + 0x00);
+    let cfgr = codie::sim::read32(codie::hal::addr::RCC + 0x04);
+    // the flash latency the original writes
+    assert_eq!(
+        codie::sim::read32(codie::hal::addr::FLASH + 0x00) & 0x7,
+        1,
+        "the flash latency is not 1 wait state"
+    );
+    // the PLL is on and the system clock is the PLL
+    assert_ne!(cr & 0x0001_0000, 0, "the PLL is off after the setup");
+    assert_ne!(cr & 0x0100_0000, 0, "the PLL is not running after the setup");
+    assert_eq!(cfgr & 0x3, 2, "the system clock is not the PLL");
+    assert_eq!(cfgr & 0xC, 8, "SWS does not report the PLL");
+}

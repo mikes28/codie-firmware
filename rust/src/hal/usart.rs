@@ -3,24 +3,67 @@
 use super::addr::*;
 use crate::mmio;
 
+/// The configuration the original's `FUN_0800B3FC` takes from its caller.
+///
+/// The values are the ones the two callers pass in the dump: the BLE link
+/// (`FUN_08007F7C`) uses `cr2 = 0x2000` (two stop bits) and `cr3 = 0x300`, the
+/// console link (`FUN_08009A04`) uses `cr2 = 0` and `cr3 = 0`.
+#[derive(Clone, Copy)]
+pub struct Cfg {
+    /// the baud rate
+    pub baud: u32,
+    /// the value OR'd into `CR2` (bit 13 = two stop bits)
+    pub cr2: u16,
+    /// the value OR'd into `CR3`
+    pub cr3: u16,
+}
+
+impl Cfg {
+    /// A configuration with the given baud rate and no extra bits.
+    pub const fn new(baud: u32) -> Self {
+        Cfg { baud, cr2: 0, cr3: 0 }
+    }
+}
+
 /// `FUN_0800B3FC` - configure a USART.
 ///
-/// The baud divisor is computed like the original:
-/// `BRR = periph_clock / baud`, rounded up when the remainder is at least
-/// half of the baud rate.
-pub fn init(usart: u32, baud: u32, stop_bits: u8) {
-    if baud == 0 {
+/// The function is generic: the caller passes a config struct and the
+/// original computes
+/// ```text
+/// CR1 = (CR1 & 0xE9F3) | cfg[3] | cfg[1] | cfg[4]
+/// CR2 = (CR2 & 0xCFFF) | cfg[2]
+/// CR3 = (CR3 & 0xFCFF) | cfg[5]
+/// ```
+/// Both callers of the dump (the BLE link at `FUN_08007F7C`, the console link
+/// at `FUN_08009A04`) pass `cfg[4] = 0x000C` for the CR1 value, so the
+/// receiver and the transmitter are enabled (`CR1` bits 2 and 3: RE + TE).
+/// The C reconstruction and the first version of this port wrote `0x0300`
+/// here - that is `PEIE | PS` (the parity error interrupt and the odd parity
+/// selection), which leaves RE and TE **off**: the link would have been
+/// completely dead on the robot.  The mistake was invisible in the host
+/// simulator because it wraps the USART primitives and never looks at the
+/// control registers.
+///
+/// The baud divisor is computed like the original
+/// (`0x800b483`: `quotient + (remainder >= baud/2 ? 1 : 0)`), and it is
+/// truncated to 16 bits (`uxth` at `0x800b49f`).
+pub fn init(usart: u32, cfg: &Cfg) {
+    if cfg.baud == 0 {
         return;
     }
-    let mut brr = APB1_HZ / baud;
-    if (baud / 2) <= (APB1_HZ % baud) {
+    let mut brr = APB1_HZ / cfg.baud;
+    if (cfg.baud / 2) <= (APB1_HZ % cfg.baud) {
         brr += 1;
     }
+    brr &= 0xFFFF;
 
     mmio::rmw16(usart + USART_CR1, |v| v & 0xFFFE);
-    mmio::rmw16(usart + USART_CR2, |v| (v & 0xCFFF) | (((stop_bits as u16) & 1) << 13));
-    mmio::rmw16(usart + USART_CR1, |v| (v & 0xE9F3) | 0x0300); // TE | RE
-    mmio::rmw16(usart + USART_CR3, |v| (v & 0xFCFF) | 0x000C);
+    // the original: CR2 = (CR2 & 0xCFFF) | cfg.cr2
+    mmio::rmw16(usart + USART_CR2, |v| (v & 0xCFFF) | cfg.cr2);
+    // RE + TE (the value of both callers of the dump)
+    mmio::rmw16(usart + USART_CR1, |v| (v & 0xE9F3) | 0x000C);
+    // the value the caller passes for the CR3
+    mmio::rmw16(usart + USART_CR3, |v| (v & 0xFCFF) | cfg.cr3);
     mmio::w16(usart + USART_BRR, brr as u16);
 }
 

@@ -11,8 +11,10 @@ use crate::state::Global;
 /// USART3 0x40004800 @ 14400 - the AT channel to the BLE module.
 const BLE_USART: u32 = addr::USART3;
 const BLE_BAUD: u32 = 14400;
-/// 2 stop bits (the original writes CR2 = 0x2000).
-const BLE_STOP_BITS: u8 = 2;
+/// the CR2 value the original passes (`FUN_08007F7C`): bit 13 = two stop bits
+const BLE_CR2: u16 = 0x2000;
+/// the CR3 value the original passes (`FUN_08007F7C`)
+const BLE_CR3: u16 = 0x0300;
 
 /// Receive ring buffer: 128 bytes like the original.
 const BLE_RX_SIZE: usize = 128;
@@ -23,7 +25,9 @@ const BLE_TX_SIZE: usize = 64;
 /// USART4 0x40004C00 @ 460800 - the command + reply link.
 const CONSOLE_USART: u32 = addr::USART4;
 const CONSOLE_BAUD: u32 = 460800;
-const CONSOLE_STOP_BITS: u8 = 1;
+/// the CR2 and CR3 values the original passes (`FUN_08009A04`)
+const CONSOLE_CR2: u16 = 0;
+const CONSOLE_CR3: u16 = 0;
 /// Console receive ring buffer: 200 bytes.
 const CONSOLE_RX_SIZE: usize = 200;
 
@@ -286,7 +290,11 @@ pub fn init() {
         s.console_rx.flush();
     }
 
-    usart::init(BLE_USART, BLE_BAUD, BLE_STOP_BITS);
+    // FUN_08007F7C passes cfg[2]=0x2000 (two stop bits) and cfg[5]=0x300
+    usart::init(
+        BLE_USART,
+        &usart::Cfg { baud: BLE_BAUD, cr2: BLE_CR2, cr3: BLE_CR3 },
+    );
     usart::enable(BLE_USART); // CR1.UE, FUN_0800B4C0
 
     // The console / command link (FUN_08009A04): the console USART is
@@ -304,7 +312,11 @@ pub fn init() {
     gpio::set_af(addr::GPIOC, 10, 0);
     gpio::set_af(addr::GPIOC, 11, 0);
 
-    usart::init(CONSOLE_USART, CONSOLE_BAUD, CONSOLE_STOP_BITS);
+    // FUN_08009A04 passes cfg[2]=0 and cfg[5]=0 (one stop bit, no CR3 bits)
+    usart::init(
+        CONSOLE_USART,
+        &usart::Cfg { baud: CONSOLE_BAUD, cr2: CONSOLE_CR2, cr3: CONSOLE_CR3 },
+    );
     usart::enable(CONSOLE_USART);
 
     {

@@ -17,6 +17,21 @@
 #   set hwiDrive dutyB 100
 #   call drvBattery hwInit
 #
+# NOTE on the register facts: the four facts
+#   reg.usart3.cr2, reg.usart4.cr2, reg.usart3.cr3, reg.usart4.cr3
+# are corrected to the values of the ORIGINAL BINARY (stm32_flash.bin).
+# The C firmware writes different ones, because its hwi_usart_init computes
+# the CR2 value as `(stop_bits & 1) << 13` (which maps 2 stop bits to 0) and
+# the CR3 value as the constant 0x000C.  The dump's FUN_0800B3FC is a
+# generic init that takes the values from the caller, and both callers pass
+# them directly: FUN_08007F7C (the BLE link, USART3) passes cfg[2]=0x2000
+# (two stop bits) and cfg[5]=0x300, FUN_08009A04 (the console link, USART4)
+# passes 0 for both.  The dump is the ground truth, so the Rust port follows
+# the dump and this fixture does too - see rust/src/hal/usart.rs.
+# The C firmware also never enabled the transmitter and the receiver
+# (it wrote 0x0300 into CR1 instead of 0x000C), which the simulator could
+# not see because it wraps the USART primitives.
+
 # Format: "key: value", one fact per line.
 #   <n>.cmdlink.tx  the bytes the firmware sent on USART4 (the command
 #                   and reply link), hex encoded
@@ -55,7 +70,7 @@ reg.tim3.arr: 1000
 reg.tim3.psc: 0
 reg.usart3.brr: 6667
 reg.usart4.brr: 208
-reg.usart3.cr2: 0
-reg.usart4.cr2: 8192
-reg.usart3.cr3: 12
-reg.usart4.cr3: 12
+reg.usart3.cr2: 8192
+reg.usart4.cr2: 0
+reg.usart3.cr3: 768
+reg.usart4.cr3: 0
