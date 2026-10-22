@@ -20,18 +20,24 @@ reference implementation is `fw/` (untouched, read only).
 | the vector table and the reset handler | `src/startup.rs` | done |
 | `main()` - the boot sequence and the main loop | `src/boot.rs` | done |
 | the firmware binary target | `src/main.rs` | done |
-| the tests | `tests/{protocol,simulator,binary,binary_ops,c_equivalence}.rs` | done, 7 tests green |
+| the tests | `tests/{protocol,simulator,binary,binary_image,binary_ops,c_equivalence}.rs` | done, 8 tests green |
 | the documentation | `README.md`, `ARCHITECTURE.md` (the flow graph), `PARITY.md`, `HAL_PARITY.md` | done |
 
 **Everything is green:**
 
 ```
 cargo check --all-targets      clean, no warnings
-cargo test                     7 passed, 0 failed
-cargo build --release --target thumbv6m-none-eabi   -> rust/build/fw.bin (15 456 B)
-python3 tools/verify_features.py rust/build/fw.bin  -> OK: every protocol visible
+cargo test                     8 passed, 0 failed
+cargo build --release --target thumbv6m-none-eabi   -> rust/build/fw.bin (13 432 B)
+python3 rust/verify_features.py rust/build/fw.bin   -> OK: every protocol visible
                                                         string of the original is present
+tools/run_sim.sh               -> all behavioural checks passed (the C did not move)
 ```
+
+The image was optimized (15 456 -> 13 432 bytes, see `OPTIMIZATION.md`) and
+**after** the optimization everything was checked against the dump again -
+the whole suite is green, the image carries the surface of the original and
+the C firmware still produces the same facts.
 
 ---
 
@@ -114,15 +120,12 @@ into the fixture of the equivalence test.  The default transcript of
 |---|---|
 | the dumped original (the firmware part of the flash) | 54 820 |
 | the C rebuild | 12 608 |
-| the **Rust** rebuild | 15 456 |
+| the **Rust** rebuild | 13 432 (was 15 456 before the optimization) |
 
-The Rust image is 2 848 bytes bigger than the C one (+23 %): about 600 B are
-the protocol strings, which the Rust carries twice - once as the `&str`
-literals of the code and once NUL terminated in `src/proto/catalog.rs`, so
-that every string stays individually recoverable in the flash exactly like
-the string table of the original (that is what makes
-`tools/verify_features.py` pass on the Rust image).  The rest is the `no_std`
-machinery and the bigger `core` code.
+The Rust image is 824 bytes bigger than the C one (+6.5 %): the `no_std`
+machinery of `core` and the bigger code of the Rust (the `Option` handling,
+the bounds checks).  The protocol strings are stored once - the dead second
+copy was dropped by the optimization (see `OPTIMIZATION.md`).
 
 ---
 

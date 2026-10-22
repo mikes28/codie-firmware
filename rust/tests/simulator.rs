@@ -121,6 +121,88 @@ fn the_firmware_behaves_like_the_original() {
     // 96 MHz / 460800 = 208.33 -> 208
     assert_eq!(sim::usart_brr(USART4), 208, "the BRR of the command link");
 
+    // --- the error paths of the two links --------------------------------
+    //
+    // The C reports the USART errors of the link they happen on
+    // (fw/modules/bleCom.c): "BLE framing error", "BLE USART noise" and
+    // "BLE USART overrun" on the AT link, "USART framing error",
+    // "USART noise" and "USART overrun" on the command link.
+    sim::usart_set_error(USART3, 0x02); // a framing error on the AT link
+    settle();
+    assert!(
+        take().contains("call :proxy message err BLE framing error\n"),
+        "a framing error on the AT link has to be reported"
+    );
+
+    sim::usart_set_error(USART3, 0x08); // an overrun on the AT link
+    settle();
+    assert!(
+        take().contains("call :proxy message err BLE USART overrun\n"),
+        "an overrun on the AT link has to be reported"
+    );
+
+    sim::usart_set_error(USART4, 0x04); // a noise error on the command link
+    settle();
+    assert!(
+        take().contains("call :proxy message err USART noise\n"),
+        "a noise error on the command link has to be reported"
+    );
+
+    sim::usart_set_error(USART4, 0x02); // a framing error on the command link
+    settle();
+    assert!(
+        take().contains("call :proxy message err USART framing error\n"),
+        "a framing error on the command link has to be reported"
+    );
+
+    // --- the answers of the BLE module -----------------------------------
+    //
+    // The C recognises the answers of the module ("BLE-RSP HELLO" and
+    // "BLE-RSP GAP SET MODE: ") and repeats them on the command link
+    // (fw/modules/bleCom.c, FUN_0800663C and FUN_080067F4).
+    sim::usart_push_rx(USART3, b"BLE-RSP HELLO\n");
+    settle();
+    assert!(
+        take().contains("BLE-RSP HELLO\n"),
+        "the answer of the BLE module has to be repeated"
+    );
+
+    sim::usart_push_rx(USART3, b"BLE-RSP GAP SET MODE: 1\n");
+    settle();
+    assert!(
+        take().contains("BLE-RSP GAP SET MODE: 1\n"),
+        "the GAP answer of the BLE module has to be repeated"
+    );
+
+    // --- the overflow of the receive ring --------------------------------
+    //
+    // The C prints "BUFOVF!!!!!" when the receive ring of a link is full
+    // (the ring of the command link holds 200 bytes).
+    sim::usart_push_rx(USART4, &vec![b'x'; 400]);
+    settle();
+    assert!(
+        take().contains("BUFOVF!!!!!"),
+        "the overflow of the receive ring has to be reported"
+    );
+
+    // --- the overflow of the command buffer ------------------------------
+    //
+    // The C reads at most 40 bytes into the command buffer (0x28); a longer
+    // line empties the buffer, the firmware reports "possible cmdBuf
+    // overflow" and then dispatches the empty line, which answers
+    // "Invalid command!" (fw/src/main.c).
+    feed(&"x".repeat(60));
+    settle();
+    let out = take();
+    assert!(
+        out.contains("call :proxy message err possible cmdBuf overflow\n"),
+        "the overflow of the command buffer has to be reported"
+    );
+    assert!(
+        out.contains("call :proxy message err Invalid command!\n"),
+        "the empty line after an overflow has to be answered"
+    );
+
     drop(firmware);
     drop(tick);
 }

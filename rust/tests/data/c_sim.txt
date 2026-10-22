@@ -4,7 +4,7 @@
 # C source:      fw/ (the C reconstruction of the original firmware)
 # Harness:       tools/host_sim.c (the C firmware on the host against
 #                a fake memory mapped peripheral map)
-# Date:          2026-10-22 08:48:06 UTC
+# Date:          2026-10-22 10:41:58 UTC
 #
 # The facts below are what the C firmware did during the scenario of
 # tools/host_sim.c: the boot, then the commands

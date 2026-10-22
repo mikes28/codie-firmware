@@ -541,45 +541,50 @@ fn string_literals(src: &str) -> Vec<String> {
 /// They are read out of `boot::run()` - the port publishes the version
 /// block of the original there.
 fn rust_greeting_pairs() -> Vec<(String, String)> {
-    let src = fs::read_to_string(repo_root().join("rust/src/boot.rs")).expect("rust/src/boot.rs");
-    let start = src.find("resp_greeting(").expect("the greeting call in boot.rs");
-    let body = &src[start..];
+    // The greeting is taken from the *running* firmware: the boot of the
+    // port is started, the bytes that come out of the command link are read
+    // and the key/value pairs are parsed out of them.  That is what the
+    // robot really sends - not a scan of the source.
+    use codie::hal::addr::USART4;
 
+    codie::sim::reset();
+    let firmware = std::thread::spawn(|| codie::boot::run());
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let bytes = codie::sim::usart_take_tx(USART4);
+    let text = String::from_utf8_lossy(&bytes).into_owned();
+    drop(firmware);
+
+    let greeting = text
+        .lines()
+        .find(|l| l.contains(":proxy greeting"))
+        .unwrap_or("")
+        .to_string();
+    parse_pairs(&greeting)
+}
+
+/// The key/value pairs of a greeting line: `"key":"value" ...`.
+fn parse_pairs(greeting: &str) -> Vec<(String, String)> {
     let mut pairs = Vec::new();
-    let mut i = 0usize;
-    while let Some(p) = body[i..].find("(\"") {
-        let key_at = i + p + 2;
-        let Some(key_len) = body[key_at..].find('"') else {
+    let mut rest = greeting;
+    while let Some(start) = rest.find('"') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('"') else {
             break;
         };
-        let key = body[key_at..key_at + key_len].to_string();
-        let after_key = key_at + key_len + 1;
-        let rest = body[after_key..].trim_start();
-        if !rest.starts_with(',') {
-            i = after_key;
-            continue;
-        }
-        let value_at = after_key + (body[after_key..].len() - rest.len()) + 1;
-        let rest = body[value_at..].trim_start();
-        // the value may be wrapped in `Some(...)`: the greeting takes
-        // Option<&str> pairs, so that the NULL value of the C is expressible
-        let value_at = if rest.starts_with("Some(") {
-            value_at + (body[value_at..].len() - rest.len()) + "Some(".len()
-        } else {
-            value_at
-        };
-        let rest = body[value_at..].trim_start();
-        if !rest.starts_with('"') {
-            i = value_at;
-            continue;
-        }
-        let value_at = value_at + (body[value_at..].len() - rest.len());
-        let Some(value_len) = body[value_at + 1..].find('"') else {
+        let key = after[..end].to_string();
+        let Some(colon) = after[end..].find(':') else {
             break;
         };
-        let value = body[value_at + 1..value_at + 1 + value_len].to_string();
-        pairs.push((key, value));
-        i = value_at + 1 + value_len + 1;
+        let value_part = &after[end + colon + 1..];
+        let Some(vstart) = value_part.find('"') else {
+            break;
+        };
+        let vafter = &value_part[vstart + 1..];
+        let Some(vend) = vafter.find('"') else {
+            break;
+        };
+        pairs.push((key, vafter[..vend].to_string()));
+        rest = &vafter[vend + 1..];
     }
     pairs
 }

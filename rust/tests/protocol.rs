@@ -103,6 +103,33 @@ fn protocol_bytes_match_the_original() {
     expect("warn level", "call :proxy message wrn text\n", || {
         proxy::resp_message(proxy::LOG_WRN, "text", None);
     });
+
+    // 8) the value reply without a value: the C skips the separator *and*
+    //    the value when the value is NULL (`fw/modules/proxy.c`)
+    expect("value reply without a value", "get drvBattery voltage\n", || {
+        proxy::resp_value_opt(proxy::OP_GET, "drvBattery", "voltage", None);
+    });
+
+    // 9) the greeting with a message: the C writes the "msg:" prefix behind
+    //    the key/value block (`FUN_0800A1C8`)
+    expect(
+        "greeting with a message",
+        "call :proxy greeting \"ver\":\"0.5.0hw2.1\" \"msg:hello\"\n",
+        || {
+            proxy::resp_greeting(&[("ver", Some("0.5.0hw2.1"))], Some("hello"));
+        },
+    );
+
+    // 10) the greeting with a NULL value: the C writes the colon and the
+    //     opening quote and then breaks out of the loop - the value and the
+    //     closing quote are missing (`fw/modules/proxy.c`)
+    expect(
+        "greeting with a NULL value",
+        "call :proxy greeting \"ver\":\"0.5.0hw2.1\" \"mat\":\"\n",
+        || {
+            proxy::resp_greeting(&[("ver", Some("0.5.0hw2.1")), ("mat", None)], None);
+        },
+    );
 }
 
 #[test]

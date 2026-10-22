@@ -85,3 +85,29 @@ the original is in the image.
 ```bash
 python3 rust/verify_features.py rust/build/fw.bin
 ```
+
+## 7. The verification after the optimization
+
+The optimization changed the code, so everything was checked against the dump
+**again**, afterwards:
+
+| check | result |
+|---|---|
+| `cargo check --all-targets` | clean, no warnings |
+| `cargo test` | 8 passed, 0 failed |
+| `tests/binary.rs` - the interface table, the version block (the *runtime* greeting), the vector table, the register map | pass |
+| `tests/binary_ops.rs` - every op of the original with its exact answer bytes | pass |
+| `tests/binary_image.rs` - the strings, the size, the vector table and the peripheral bases of the **image** | pass |
+| `tests/c_equivalence.rs` - the same scenario, the same bytes as the C firmware | pass (the fixture was captured again; only the date line changed) |
+| `tests/simulator.rs` - the whole firmware against the model of the peripherals, including the error paths of the two links, the answers of the BLE module, the overflow of the receive ring and the overflow of the command buffer | pass |
+| `python3 rust/verify_features.py rust/build/fw.bin` | every protocol visible string of the original is present |
+| `tools/run_sim.sh` - the C firmware (the reference may not move) | all behavioural checks passed |
+
+Two **negative controls** (the port was broken on purpose and then restored):
+
+| what was broken | what the test said |
+|---|---|
+| the duty of motor A one higher (`hwi_drive.rs`) | `reg.tim3.ccr1: the C firmware produced 512, the Rust port produced 513` |
+| the greeting value `ttpms` 1000 → 9999 (`boot.rs`) | `the greeting pair 3 differs from the version block of the dump - expected ("ttpms", "1000"), got ("ttpms", "9999")` |
+
+So the checks are not vacuous: they see a change of one unit in the port.
