@@ -1,4 +1,4 @@
-# Codie robot — STM32 firmware dump
+# Codie robot — STM32 firmware dump (WIP, currently not working)
 
 Raw dump of the robot's STM32 bootloader flash, captured over USB DFU on 2026-10-21.
 
