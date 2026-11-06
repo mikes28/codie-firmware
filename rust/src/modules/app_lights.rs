@@ -21,7 +21,16 @@ use crate::modules::hwi_led;
 use crate::proto::proxy;
 use crate::state::Global;
 
-const APP_LIGHTS_LEDS: usize = 11;
+/// The number of LEDs the dump's light programs drive (`FUN_080090A8` loops
+/// `iVar3 != 0xc` = 12).
+const APP_LIGHTS_LEDS: usize = hwi_led::LED_COUNT;
+
+/// The period of one program step, in milliseconds.
+///
+/// The original writes `0xa0` (160 ms) into the state at `0x2000035c` when
+/// it is zero (`FUN_08006000`) - that is the interval between two steps of
+/// the light program.
+const LIGHT_STEP_MS: u32 = 160;
 const APP_LIGHTS_MAXPROG: usize = 4;
 
 // a step is one byte: the bits 0..3 select the LED, the bits 4..7 give the
@@ -42,12 +51,15 @@ struct State {
     prog: u8,    /* the selected program   */
     step: u8,    /* the current step       */
     running: u8,
+    /* when the next step may run (the millisecond tick) */
+    next_step_ms: u32,
 }
 
 static S: Global<State> = Global::new(State {
     prog: 0,
     step: 0,
     running: 0,
+    next_step_ms: 0,
 });
 
 /// the interface handler of the module
@@ -57,7 +69,15 @@ pub fn handler(_op: u8, _opname: &str, _args: &str) {
     /* the original's handler is a stub */
 }
 
-/* from FUN_08006000 - run one step of the selected program */
+/* from FUN_08006000 - run one step of the selected program.
+ *
+ * The original is TIME-GATED: `FUN_08006000` reads a millisecond stamp
+ * (`FUN_0800A558(0x20000f70,&local_18)`) and only advances the program when
+ * the state at `0x2000035c` (which it sets to `0xa0` = 160 ms when it is
+ * zero) has elapsed.  Without that gate a non-blocking main loop - which is
+ * what the dump's `FUN_08009B14` does - would advance the program on every
+ * iteration and flood the link with "PPRT"/"PPRET".
+ */
 /// `appLights_tick`
 pub fn tick() {
     let st = S.get();
@@ -65,6 +85,14 @@ pub fn tick() {
     if st.prog as usize >= APP_LIGHTS_MAXPROG || st.running == 0 {
         return;
     }
+
+    // the dump's millisecond gate
+    let now = crate::hal::util::millis();
+    if now < st.next_step_ms {
+        return;
+    }
+    st.next_step_ms = now + LIGHT_STEP_MS;
+
     let prog = PROGS[st.prog as usize];
     if st.step as usize >= prog.len() {
         st.running = 0;
@@ -79,8 +107,11 @@ pub fn tick() {
         duty = (b >> 4) * 17; // 0..15 * 17 -> 0..255
     }
 
+    // The light programs write single-channel brightness steps; on the ARGB
+    // strip each LED takes that brightness as white (all three channels).
     for i in 0..APP_LIGHTS_LEDS {
-        hwi_led::set_pwm(i as u8, if i as u8 == led { duty } else { 0 });
+        let v = if i as u8 == led { duty } else { 0 };
+        hwi_led::set_rgb(i as u8, v, v, v);
     }
 
     if st.step == 0 {
@@ -101,5 +132,6 @@ pub fn init() {
     st.prog = 1;
     st.step = 0;
     st.running = 1;
+    st.next_step_ms = crate::hal::util::millis() + LIGHT_STEP_MS;
     proxy::register(proxy::Iface { name: "appLights", handler: handler });
 }

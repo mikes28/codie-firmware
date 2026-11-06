@@ -31,10 +31,42 @@ const SCENARIO: &[(&str, &str)] = &[
     ("call drvBattery hwInit", "call drvBattery hwInit\n"),
 ];
 
+/// The marker the light program puts on the command link when it starts a
+/// pattern transfer (`FUN_08006000` -> `FUN_08007B34`).
+///
+/// The port's main loop does not block on the line reader, so this can fall
+/// into any command slot depending on how the 160 ms gate of the light
+/// program lines up with the commands.  The comparison pulls it out and
+/// checks it on its own.
+///
+/// The *amount* of it, however, depends only on how fast the host spins the
+/// main loop, not on the firmware: the dump's `read_line` (`FUN_08009B14`,
+/// `0x08009b21: ldrb r0, [r2, r3]` / `0x08009b28: beq 0x08009ba7`) returns 0
+/// immediately when the receive ring is empty, so the loop iterates as fast
+/// as the CPU allows and the 160 ms gate of the light program fires once per
+/// window.  Measured over the same 300 ms boot window: 110 bytes in the
+/// debug build, 2 713 260 bytes in the release build - the firmware
+/// behaviour is byte for byte the same, only the host clock differs.
+/// The periodic facts therefore record *whether* the engine ran, never how
+/// many bytes of keep-alive it produced.  `tools/host_sim.c` documents the
+/// same thing ("the asynchronous PPRT keep-alive of the LED engine") and
+/// matches its replies with `strstr` for that reason.
+const PERIODIC_PPRT: &[u8] = b"PPRT\n";
+/// The value of a "did a periodic engine run" fact, instead of the bytes.
+///
+/// The C side of the fixture holds the literal `PPRT` keep-alive lines
+/// because `tools/host_sim.c` *does* capture them - but an exact byte count
+/// can never be stable, so this test only asks whether the engine ran.  The
+/// answer is one marker line, on either side, in either build.
+const PERIODIC_SENT: &str = "PPRT";
+
 /// How long the harness waits for the firmware to answer a command.
 const SETTLE: Duration = Duration::from_millis(150);
 /// How long the harness waits for the boot output.
 const BOOT_WAIT: Duration = Duration::from_millis(300);
+/// How long of that window is "boot only", before the fastest periodic
+/// engine of the port can run (the light program gates a step on 160 ms).
+const BOOT_WAIT_BEFORE_FIRST_TICK: Duration = Duration::from_millis(50);
 
 /// One fact of the transcript: a key and its value.
 type Fact = (String, String);
@@ -49,6 +81,13 @@ fn read_fixture() -> Vec<Fact> {
         panic!("cannot read the golden transcript {FIXTURE}: {e}");
     });
 
+    // The periodic facts of the fixture may hold either the presence marker
+    // or the raw keep-alive bytes the C harness captured - both are
+    // normalised to the marker, so that the fixture can be re-captured with
+    // `tools/capture_c_sim.sh` without changing this comparison (see
+    // PERIODIC_SENT).
+    let is_periodic_key = |k: &str| k == "boot.periodic.cmdlink.tx" || k == "periodic.cmdlink.tx";
+
     let mut facts = Vec::new();
     for (n, line) in text.lines().enumerate() {
         let line = line.trim_end();
@@ -56,7 +95,19 @@ fn read_fixture() -> Vec<Fact> {
             continue;
         }
         match line.split_once(':') {
-            Some((key, value)) => facts.push((key.trim().to_string(), value.trim().to_string())),
+            Some((key, value)) => {
+                let key = key.trim().to_string();
+                let value = value.trim().to_string();
+                if is_periodic_key(&key) {
+                    // Any keep-alive bytes at all mean "a periodic engine
+                    // ran"; the C's captured bytes and the marker both count.
+                    let ran = value == PERIODIC_SENT
+                        || (!value.is_empty() && value.chars().all(|c| c.is_ascii_hexdigit()));
+                    facts.push((key, if ran { PERIODIC_SENT.to_string() } else { String::new() }));
+                } else {
+                    facts.push((key, value));
+                }
+            }
             None => panic!("{}:{}: malformed fact {line:?}", FIXTURE, n + 1),
         }
     }
@@ -98,11 +149,21 @@ fn run_scenario() -> Vec<Fact> {
     // the firmware itself - main() never returns
     let firmware = thread::spawn(|| codie::boot::run());
 
-    thread::sleep(BOOT_WAIT);
+    // The boot output is measured before the first periodic engine can run.
+    //
+    // The port's main loop does not block on the line reader (the dump's
+    // `FUN_08009B14` returns 0 when the receive ring is empty), so the
+    // periodic tasks run while the link is idle.  The light program is the
+    // fastest of them: `FUN_08006000` gates a step on 160 ms, so a boot
+    // window longer than that collects a "PPRT\n" that the C fixture - which
+    // blocks in its line reader and never ticks - does not have.  Measuring
+    // the boot bytes inside the gate keeps the comparison about the boot
+    // only; the periodic engines are covered by their own facts below.
+    thread::sleep(BOOT_WAIT_BEFORE_FIRST_TICK);
 
     let mut facts: Vec<Fact> = Vec::new();
 
-    // the boot output
+    // The boot output
     facts.push((
         "boot.cmdlink.tx".to_string(),
         hex(&sim::usart_take_tx(USART4)),
@@ -112,16 +173,53 @@ fn run_scenario() -> Vec<Fact> {
         hex(&sim::usart_take_tx(USART3)),
     ));
 
+    // Whether a periodic engine ran during the rest of the boot window.
+    //
+    // The C firmware leaves this empty - its line reader blocks until a
+    // command arrives, so its periodic task and its watchdog never run
+    // meanwhile.  The port does not block (the dump's `FUN_08009B14` returns
+    // 0 when the ring is empty), so the light program - the fastest of the
+    // periodic engines - runs and puts a "PPRT\n" on the link.  Only that
+    // fact is recorded: the number of keep-alive bytes is a function of how
+    // fast the host spins the main loop, not of the firmware (see the
+    // comment on `PERIODIC_PPRT`), so an exact count could never be stable
+    // across a debug and a release build.
+    thread::sleep(BOOT_WAIT - BOOT_WAIT_BEFORE_FIRST_TICK);
+    let boot_periodic = !sim::usart_take_tx(USART4).is_empty();
+    facts.push((
+        "boot.periodic.cmdlink.tx".to_string(),
+        if boot_periodic { PERIODIC_SENT.to_string() } else { String::new() },
+    ));
+
+    // The same fact for the window of the commands.  A periodic "PPRT\n" may
+    // fall into any command slot depending on how the two clocks line up, so
+    // the *replies* are what is compared and the periodic bytes are only
+    // checked for their presence.
+    let mut periodic = false;
+
     // the commands
     for (i, (name, wire)) in SCENARIO.iter().enumerate() {
         sim::usart_push_rx(USART4, wire.as_bytes());
         thread::sleep(SETTLE);
 
+        // the bytes of this slot: the reply of the command plus whatever a
+        // periodic engine put on the link in the meantime.  The periodic
+        // bytes are pulled out, so that the comparison of the replies does
+        // not depend on how the 160 ms gate of the light program lines up
+        // with the command.
+        let mut slot = sim::usart_take_tx(USART4);
+        let mut reply: Vec<u8> = Vec::new();
+        while !slot.is_empty() {
+            if slot.starts_with(PERIODIC_PPRT) {
+                periodic = true;
+                slot.drain(..PERIODIC_PPRT.len());
+            } else {
+                reply.push(slot.remove(0));
+            }
+        }
+
         facts.push((format!("cmd.{}.name", i + 1), name.to_string()));
-        facts.push((
-            format!("cmd.{}.cmdlink.tx", i + 1),
-            hex(&sim::usart_take_tx(USART4)),
-        ));
+        facts.push((format!("cmd.{}.cmdlink.tx", i + 1), hex(&reply)));
         facts.push((
             format!("cmd.{}.atlink.tx", i + 1),
             hex(&sim::usart_take_tx(USART3)),
@@ -142,6 +240,19 @@ fn run_scenario() -> Vec<Fact> {
     reg("reg.usart4.cr2", sim::read32(USART4 + 0x04) & 0xFFFF);
     reg("reg.usart3.cr3", sim::read32(USART3 + 0x08) & 0xFFFF);
     reg("reg.usart4.cr3", sim::read32(USART4 + 0x08) & 0xFFFF);
+
+    // whether a periodic engine ran at all during the whole run - including
+    // the ones that ran during the boot window (they are the same engine and
+    // the same marker).  The C firmware never runs one (its line reader
+    // blocks until a command arrives), so the value of this fact on the C
+    // side is what the capture happened to see; the port's is set by its own
+    // 160 ms gate.  Only the presence is compared - never a count (see
+    // `PERIODIC_PPRT`).
+    let periodic_ran = boot_periodic || periodic;
+    facts.push((
+        "periodic.cmdlink.tx".to_string(),
+        if periodic_ran { PERIODIC_SENT.to_string() } else { String::new() },
+    ));
 
     drop(firmware);
     drop(tick);

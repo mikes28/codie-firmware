@@ -39,6 +39,16 @@ pub fn dma_mode(adc: u32, on: bool) {
     }
 }
 
+/// `FUN_0800A7AC` - clear a status flag by writing its mask to the ISR.
+///
+/// The dump's helper stores its second argument through the base pointer it is
+/// given (`*base = mask`), and `FUN_080071C0` passes the **ADC base** with
+/// mask `0x10` (OVR) - the status register of this part sits at offset 0x00,
+/// so the two are the same address.
+pub fn isr_clear(adc: u32, mask: u32) {
+    mmio::w32(adc + ADC_ISR, mask);
+}
+
 /// `FUN_0800A6DC` - CR bit 0 enables the ADC, bit 1 starts the shutdown.
 pub fn enable(adc: u32, on: bool) {
     let cr = mmio::r32(adc + ADC_CR);
@@ -57,10 +67,23 @@ pub fn stop(adc: u32) {
 /// `FUN_0800A704` - start a conversion, wait for it and return the result.
 ///
 /// The data register of this part sits at offset 0x40.
+///
+/// The wait is **bounded** in the dump: `FUN_0800A704` @0x800a704 loads the
+/// counter from the literal at 0x800a750 (`0x0000_EFFF`), decrements it by
+/// two per iteration (`subs r3,#1` twice, at 0x800a73c and 0x800a746), and
+/// when it runs out it takes the path that returns **0** (`movs r0,#0`
+/// @0x800a730) instead of the data register.  An unbounded spin would hang
+/// the firmware for good on a conversion that never completes, so the port
+/// reproduces the bound.
 pub fn start(adc: u32) -> u32 {
     let cr = mmio::r32(adc + ADC_CR);
     mmio::w32(adc + ADC_CR, cr | 0x8000_0000);
+    let mut countdown: u32 = 0xEFFF;
     while (mmio::r32(adc + ADC_CR) as i32) < 0 {
+        if countdown <= 2 {
+            return 0; // the dump gives up here and returns 0
+        }
+        countdown -= 2;
         core::hint::spin_loop();
     }
     mmio::r32(adc + ADC_DR)

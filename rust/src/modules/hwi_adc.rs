@@ -179,8 +179,14 @@ fn adc_hw_init(samples: u32) {
 fn adc_hw_start() {
     let _ = adc::start(addr::ADC1); // FUN_0800A704: one conversion
     adc::enable(addr::ADC1, true); // FUN_0800A6DC: CR.ADEN
+    // wait for ADEN - bounded like FUN_0800A704's countdown (0xeffe)
+    let mut countdown: u32 = 0xeffe;
     while !adc::ready(addr::ADC1, 1) {
         // FUN_0800A78C: wait for ADEN
+        if countdown == 0 {
+            break;
+        }
+        countdown -= 1;
     }
     dma::channel_enable(addr::DMA1_CH2, true); // FUN_0800A87C
     adc::dma_mode(addr::ADC1, true); // FUN_0800A760: CFGR1.DMNGT
@@ -223,4 +229,26 @@ fn chan_average(st: &State, index: u8) -> u16 {
     }
 
     ((sum + 4) >> 3) as u16
+}
+
+/// `FUN_080071C0` - the ADC service of the periodic task.
+///
+/// Called from the dump's `FUN_080063EC` (the periodic task, @0x80063ec) with
+/// the ADC base and the mask `0x10`: it tests the conversion-overrun flag of
+/// the ADC and clears it through `FUN_0800A7AC` when it is set.
+/// ```text
+/// 0x80071d8: iVar1 = FUN_0800A78C(0x40012400, 0x10, ...)   ; the flag test
+/// 0x80071dc: if (iVar1 != 0) FUN_0800A7AC(0x40012400, 0x10) ; the clear
+/// ```
+/// The port polls the same flag through `adc::ready` and clears it by writing
+/// the mask to the ISR (`FUN_0800A7AC` writes its second argument to the base
+/// pointer, and the flag lives in the ADC's status register).
+pub fn tick() {
+    let needs_init = S.get().state == 0;
+    if needs_init {
+        init();
+    }
+    if adc::ready(addr::ADC1, 0x10) {
+        adc::isr_clear(addr::ADC1, 0x10); // FUN_0800A7AC: clear OVR
+    }
 }

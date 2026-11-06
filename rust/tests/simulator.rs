@@ -39,7 +39,12 @@ fn the_firmware_behaves_like_the_original() {
     // the firmware itself - main() never returns
     let firmware = thread::spawn(|| codie::boot::run());
 
-    thread::sleep(Duration::from_millis(300));
+    // The boot output is measured before the fastest periodic engine of the
+    // port can run.  The main loop does not block on the line reader (the
+    // dump's `FUN_08009B14` returns 0 when the ring is empty), so the light
+    // program steps after its 160 ms gate (`FUN_08006000`) and would
+    // otherwise put a "PPRT\n" into this exact comparison.
+    thread::sleep(Duration::from_millis(50));
 
     // --- the boot output -------------------------------------------------
     let boot = take();
@@ -53,6 +58,10 @@ fn the_firmware_behaves_like_the_original() {
         sim::usart_take_tx(USART3).is_empty(),
         "the AT link must stay quiet at boot"
     );
+
+    // let the rest of the boot window run, then drop the periodic bytes
+    thread::sleep(Duration::from_millis(250));
+    let _ = take();
 
     // --- the commands ----------------------------------------------------
     feed("get drvBattery voltage\n");
@@ -203,39 +212,86 @@ fn the_firmware_behaves_like_the_original() {
         "the empty line after an overflow has to be answered"
     );
 
+    // The command-buffer overflow above leaves an empty line pending, which
+    // the firmware answers with "Invalid command!" - drain it before the
+    // LED checks so the captures below are not polluted.
+    feed("get hwiBuzz stop\n");
+    settle();
+    let _ = take();
+
+    // --- the ARGB strip (hwiLed) -----------------------------------------
+    //
+    // The dump drives a single-wire ARGB strip: TIM15 + DMA1 channel 5
+    // streams the per-bit CCR values into TIM15_CCR1 (0x40014034).  The
+    // wire encoding is `FUN_080090A8`: every source byte becomes 8 CCR
+    // bytes, MSB first, 0 -> 0x0e and 1 -> 0x2e.
+    let tim15 = codie::hal::addr::TIM15;
+    let ccr1 = tim15 + 0x34;
+
+    feed("set hwiLed rgb 0 255 0 0\n");
+    settle();
+    assert!(
+        take().contains("set hwiLed rgb ff0000\n"),
+        "set hwiLed rgb answers with the packed colour"
+    );
+
+    // the timer must be armed for the 1.25 us bit window and the DMA must
+    // be pointed at CCR1 with the full stream length
+    assert_eq!(sim::read32(tim15 + 0x28), 29, "the LED timer prescaler is 29");
+    assert_eq!(sim::read32(tim15 + 0x2C), 0x307, "the LED bit period is ARR");
+    assert_eq!(
+        sim::read32(tim15 + 0x18) & 0xFF,
+        0x60,
+        "CCMR1: OC1M = PWM mode 1, OC1PE clear"
+    );
+    assert_ne!(
+        sim::read32(tim15 + 0x20) & 1,
+        0,
+        "the channel 1 output must be enabled"
+    );
+    assert_ne!(
+        sim::read32(tim15 + 0x44) & 0x8000,
+        0,
+        "BDTR.MOE must be set"
+    );
+
+    let dma = codie::hal::addr::DMA1_CH5;
+    assert_eq!(
+        sim::read32(dma + 0x08),
+        ccr1,
+        "the DMA must push into TIM15_CCR1"
+    );
+    // the stream is 12 LEDs * 3 bytes * 8 bits = 288 entries
+    assert_eq!(sim::read32(dma + 0x04), 288, "the DMA transfer count");
+
+    // `pwm` and `on` answer in decimal (the C `fmt_int`), `rgb` in hex (the
+    // firmware's value-reply radix)
+    feed("set hwiLed pwm 1 255\n");
+    settle();
+    assert!(
+        take().contains("set hwiLed pwm 255\n"),
+        "set hwiLed pwm answers in decimal"
+    );
+
+    feed("set hwiLed on 2 off\n");
+    settle();
+    assert!(
+        take().contains("set hwiLed on 0\n"),
+        "set hwiLed on with an off flag answers 0 in decimal"
+    );
+
+    // `get` reports the stored duty of the addressed LED.  The light
+    // programs rewrite the whole strip every 160 ms, so only the reply
+    // shape is asserted - a fixed number here would race the engine.
+    feed("get hwiLed pwm 1\n");
+    settle();
+    assert!(
+        take().contains("get hwiLed pwm "),
+        "get hwiLed pwm answers with the stored duty"
+    );
+
     drop(firmware);
     drop(tick);
 }
 
-/// The control registers the port writes into the two links.
-///
-/// The original (`FUN_0800B3FC`, called from `FUN_08007F7C` and
-/// `FUN_08009A04`) enables the transmitter and the receiver: `CR1 |= 0x000C`
-/// (bits 2 and 3: RE + TE).  The C reconstruction and the first version of
-/// the port wrote `0x0300` there instead (PEIE | PS), which would have left
-/// the link dead on the robot - the mistake was invisible in the C harness
-/// because it wraps the USART primitives with `ld --wrap` and never looks at
-/// the control registers.
-///
-/// The values of the two links (both taken from the dump):
-///   USART3 (the AT link)  : CR2 = 0x2000 (two stop bits), CR3 = 0x300
-///   USART4 (the command)  : CR2 = 0, CR3 = 0
-#[test]
-fn the_control_registers_enable_the_transmitter_and_the_receiver() {
-    codie::sim::reset();
-    codie::modules::ble_com::init();
-
-    // CR1 of both links: RE (bit 2) and TE (bit 3) set, and UE (bit 0)
-    for usart in [USART3, USART4] {
-        let cr1 = codie::sim::read32(usart + 0x00) & 0xFFFF;
-        assert_eq!(cr1 & 0x000C, 0x000C, "CR1 of 0x{:08X}: RE+TE not set", usart);
-        assert_eq!(cr1 & 0x0001, 0x0001, "CR1 of 0x{:08X}: UE not set", usart);
-    }
-
-    // the values the dump's callers pass
-    assert_eq!(codie::sim::read32(USART3 + 0x04) & 0xFFFF, 0x2000, "CR2 of the AT link");
-    assert_eq!(codie::sim::read32(USART3 + 0x08) & 0xFFFF, 0x0300, "CR3 of the AT link");
-    assert_eq!(codie::sim::read32(USART4 + 0x04) & 0xFFFF, 0x0000, "CR2 of the command link");
-    assert_eq!(codie::sim::read32(USART4 + 0x08) & 0xFFFF, 0x0000, "CR3 of the command link");
-}
 

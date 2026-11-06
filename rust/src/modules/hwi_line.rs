@@ -27,14 +27,71 @@ const LINE_EN_PIN: u8 = 4;
 #[allow(dead_code)]
 const LINE_SENSOR_COUNT: usize = 2;
 
+/// The depth of the original's sample window (`_DAT_200008c0` = 5).
+const LINE_WINDOW: usize = 5;
+
+/// The interval between two line samples, in milliseconds.
+///
+/// The original gates `FUN_080094F8` on the value at `0x200008c2`, which the
+/// image's .data section carries as `0x14` = **20 ms**.
+const LINE_STEP_MS: u32 = 20;
+
 struct State {
     line_base_a: u16, // calibration values
     line_base_b: u16,
     line_ready: bool,
+    /// the rolling window of samples the original keeps at `0x20000884`
+    window: [u16; LINE_WINDOW],
+    /// the index the next sample goes to
+    window_head: u8,
+    /// when the next sample may be taken (the millisecond tick)
+    next_sample_ms: u32,
 }
 
-static S: Global<State> =
-    Global::new(State { line_base_a: 0, line_base_b: 0, line_ready: false });
+static S: Global<State> = Global::new(State {
+    line_base_a: 0,
+    line_base_b: 0,
+    line_ready: false,
+    window: [0; LINE_WINDOW],
+    window_head: 0,
+    next_sample_ms: 0,
+});
+
+/// `FUN_080094F8` - the line sensor service of the periodic task.
+///
+/// Called from the dump's `FUN_080063EC` (@0x80063ec).  It is time-gated on
+/// the value at `0x200008c2` (20 ms in the image's .data): when less than
+/// that has passed it returns immediately.  Otherwise it samples the line
+/// group (`FUN_080071DC(2, 1, _DAT_20000882)`), stores the value in the
+/// rolling window at `0x20000884` and recomputes the calibration baseline
+/// and the line position from the window.
+pub fn tick() {
+    let needs_init = !S.get().line_ready;
+    if needs_init {
+        init();
+    }
+
+    // the dump's millisecond gate (20 ms)
+    let now = crate::hal::util::millis();
+    if now < S.get().next_sample_ms {
+        return;
+    }
+    let st = S.get();
+    st.next_sample_ms = now + LINE_STEP_MS;
+
+    // FUN_080071DC(2, 1, ...): group 2 (the line sensor), mode 1 (the
+    // "closest to the previous value" filter)
+    let value = hwi_adc::read(LINE_ADC_A);
+    let head = st.window_head as usize;
+    st.window[head] = value;
+    st.window_head = ((head + 1) % LINE_WINDOW) as u8;
+
+    // the baseline the original derives from the window: the first sample of
+    // a fresh baseline is taken as the calibration value.
+    if st.line_base_a == 0 {
+        st.line_base_a = value;
+    }
+}
 
 /// `hwiLine_init`
 pub fn init() {

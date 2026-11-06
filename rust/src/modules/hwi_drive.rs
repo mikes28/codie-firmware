@@ -52,6 +52,9 @@ struct State {
     /// a reconstruction of hwiDrive_get_duty)
     duty_a: i32,
     duty_b: i32,
+    /// the last known level of the fault input, debounced like the original
+    /// (`_DAT_20000fc0` in the dump)
+    last_fault_level: u8,
 }
 
 static S: Global<State> = Global::new(State {
@@ -62,7 +65,41 @@ static S: Global<State> = Global::new(State {
     fault_b: 0,
     duty_a: 0,
     duty_b: 0,
+    last_fault_level: 2,
 });
+
+/// `FUN_08008784` - the motor fault poll of the periodic task.
+///
+/// Called from the dump's `FUN_080063EC` (@0x80063ec) on every iteration.  It
+/// is edge-triggered and debounced:
+/// ```text
+/// 0x800878e: if (_DAT_200006f4 != _DAT_20000fc0) {              ; the level changed
+/// 0x8008798:   iVar1 = FUN_0800aabc(0x48000000, 0x1000, ...)   ; read GPIOA PA12
+/// 0x80087a2:   _DAT_200006f4 = (iVar1 == 0)                    ; the new level
+/// 0x80087ae:   if (level != last) { callback(1 or 2); last = level }
+/// }
+/// ```
+/// The dump's callback (`_DAT_200006f8` = `FUN_08006294`, registered by
+/// `FUN_08008774(0x8006295)` from the drive module) turns the level into the
+/// `1`/`0xff` form of the drive fault flags: level 0 (the pin low = a fault)
+/// reports 1, level 2 (the pin high = healthy) reports 0xff.  The port applies
+/// that same mapping to both motor flags, because the dump's callback leaves
+/// the individual motor assignment to the drive code (`FUN_08008AD0`).
+pub fn tick() {
+    let needs_init = S.get().state == 0;
+    if needs_init {
+        init();
+    }
+    let st = S.get();
+    let level: u8 = if gpio::read(addr::GPIOA, 0x1000) { 2 } else { 0 };
+    if level != st.last_fault_level {
+        // the callback's mapping: 1 = fault, 0xff = healthy
+        let fault = if level == 0 { 1 } else { 0xFF };
+        st.fault_a = fault;
+        st.fault_b = fault;
+        st.last_fault_level = level;
+    }
+}
 
 /// `hwiDrive_init`
 pub fn init() {

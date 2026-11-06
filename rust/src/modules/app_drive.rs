@@ -18,12 +18,17 @@ use crate::state::Global;
 
 const APP_DRIVE_MOTORS: usize = 2;
 
+/// The interval of the speed loop, in milliseconds (the dump's `200`).
+const DRIVE_STEP_MS: u32 = 200;
+
 /// The state of the module (the C file scope variables).
 struct State {
     target: [i32; APP_DRIVE_MOTORS],   /* target speed, counts/tick */
     speed: [i32; APP_DRIVE_MOTORS],    /* measured speed            */
     duty: [i32; APP_DRIVE_MOTORS],     /* last duty that was set    */
     last_count: [i32; APP_DRIVE_MOTORS],
+    /* when the speed loop may run next (the millisecond tick) */
+    next_tick_ms: u32,
 }
 
 static S: Global<State> = Global::new(State {
@@ -31,6 +36,7 @@ static S: Global<State> = Global::new(State {
     speed: [0; APP_DRIVE_MOTORS],
     duty: [0; APP_DRIVE_MOTORS],
     last_count: [0; APP_DRIVE_MOTORS],
+    next_tick_ms: 0,
 });
 
 /// the interface handler of the module
@@ -41,10 +47,24 @@ pub fn handler(_op: u8, _opname: &str, _args: &str) {
     /* the original's handler only refreshes the application timestamp */
 }
 
-/* from FUN_08003330 (speed loop of the two motors) */
+/* from FUN_08003330 (speed loop of the two motors).
+ *
+ * The original rate-limits the loop: it stamps the time with
+ * `FUN_0800A558(0x20000f58,&...)` and only runs the controller when more
+ * than 200 ms have passed (`... 200 < local_28`).  A main loop that does not
+ * block on the line reader - which is what the dump's `FUN_08009B14` does -
+ * would otherwise run the speed loop on every iteration.
+ */
 /// `appDrive_tick`
 pub fn tick() {
     let st = S.get();
+
+    // the dump's millisecond gate (200 ms)
+    let now = crate::hal::util::millis();
+    if now < st.next_tick_ms {
+        return;
+    }
+    st.next_tick_ms = now + DRIVE_STEP_MS;
 
     for i in 0..APP_DRIVE_MOTORS {
         let count = hwi_enc::count(i as u8);
@@ -85,5 +105,6 @@ pub fn init() {
         st.duty[i] = 0;
         st.last_count[i] = hwi_enc::count(i as u8);
     }
+    st.next_tick_ms = crate::hal::util::millis() + DRIVE_STEP_MS;
     proxy::register(proxy::Iface { name: "appDrive", handler: handler });
 }

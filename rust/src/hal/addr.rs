@@ -28,7 +28,14 @@ pub const GPIO_AFR1: u32 = 0x24;
 pub const TIM1: u32 = 0x4001_2C00;
 pub const TIM2: u32 = 0x4000_0000;
 pub const TIM3: u32 = 0x4000_0400;
-pub const TIM6: u32 = 0x4001_0000;
+/// TIM6 - the millisecond tick timer of the original.
+///
+/// The base is **0x40001000**, NOT 0x40010000 (which is SYSCFG - the port had
+/// the two confused).  Dump evidence: `FUN_0800A464` @0x800a464 loads its
+/// base from the literal pool at 0x800a4b8, which holds 0x40001000, and then
+/// writes the tick prescaler/ARR through it; the same base appears in the
+/// IRQ-17 handler `FUN_0800A43C` @0x800a43c (`FUN_0800B3A8(&DAT_40001000,1)`).
+pub const TIM6: u32 = 0x4000_1000;
 pub const TIM15: u32 = 0x4001_4000;
 pub const TIM16: u32 = 0x4001_4400;
 pub const TIM17: u32 = 0x4001_4800;
@@ -88,6 +95,14 @@ pub const RCC: u32 = 0x4002_1000;
 pub const FLASH: u32 = 0x4002_2000;
 pub const SYSCFG: u32 = 0x4001_0000;
 pub const EXTI: u32 = 0x4001_0400;
+
+// EXTI register offsets (the dump's power module writes 0x0C and 0x08).
+/// Rising trigger selection (`EXTI_RTSR1`).
+pub const EXTI_RTSR: u32 = 0x08;
+/// Falling trigger selection (`EXTI_FTSR1`).
+pub const EXTI_FTSR: u32 = 0x0C;
+/// Pending flag (`EXTI_PR1`).
+pub const EXTI_PR: u32 = 0x14;
 pub const IWDG: u32 = 0x4000_3000;
 pub const NVIC_ISER: u32 = 0xE000_E100;
 pub const NVIC_IPR: u32 = 0xE000_E400;
@@ -99,5 +114,12 @@ pub const SYSTICK: u32 = 0xE000_E010;
 /// The rebuild reproduces the original's clock tree: HSI16 -> PLL (x6) =
 /// 96 MHz, AHB = APB1 = APB2 = 96 MHz.  See `../MEMORY.md` section 4.4.
 pub const APB1_HZ: u32 = 96_000_000;
-/// Timer clock: the APB prescaler is 1, so the timers run at 2 x APB.
-pub const TIMCLK_HZ: u32 = APB1_HZ * 2;
+/// Timer clock of the buzzer / tone generator.
+///
+/// The dump settles this: `FUN_0800849C` (0x0800849C) computes
+/// `ARR = (SystemCoreClock >> 1) / freq - 1` - the halving is the
+/// instruction at `0x80084a4` (`lsrs r0, r0, #1`), and the store of the
+/// result into `ARR` is at `0x80084ae`.  `FUN_08008514` (0x8008518) then
+/// reads that `ARR` back out of `+0x2c` for the duty maths.  So the tone
+/// timer's clock is SystemCoreClock/2 = 48 MHz, NOT the 2x APB value.
+pub const TIMCLK_HZ: u32 = APB1_HZ / 2;

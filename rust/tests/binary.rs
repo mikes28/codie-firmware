@@ -215,7 +215,7 @@ fn dump_matches_rust_port() {
     // the modules use and the default handler everywhere else.
     println!("\nChecking the vector table of the Rust port...");
     {
-        use codie::modules::{hwi_enc, hwi_sonar};
+        use codie::modules::{hwi_enc, hwi_power, hwi_sonar};
         use codie::startup::{Default_Handler, VECTORS};
         use codie::system::SysTick_Handler;
 
@@ -233,6 +233,8 @@ fn dump_matches_rust_port() {
         let tim1: unsafe extern "C" fn() = hwi_enc::TIM1_BRK_UP_TRG_COM_IRQHandler;
         let tim2: unsafe extern "C" fn() = hwi_enc::TIM2_IRQHandler;
         let tim17: unsafe extern "C" fn() = hwi_sonar::TIM17_IRQHandler;
+        let exti4_15: unsafe extern "C" fn() = hwi_power::EXTI4_15_IRQHandler;
+        let tim6: unsafe extern "C" fn() = codie::system::tim6_tick;
 
         // the address of a function pointer (the fn pointers themselves are
         // not comparable, so they are compared by their address)
@@ -242,17 +244,28 @@ fn dump_matches_rust_port() {
         };
 
         assert!(addr(handler(15)) == addr(systick), "the SysTick vector");
+        assert!(addr(handler(16 + 7)) == addr(exti4_15), "the IRQ 7 vector");
         assert!(addr(handler(16 + 9)) == addr(dma1_ch1), "the IRQ 9 vector");
         assert!(addr(handler(16 + 13)) == addr(tim1), "the IRQ 13 vector");
         assert!(addr(handler(16 + 15)) == addr(tim2), "the IRQ 15 vector");
+        assert!(addr(handler(16 + 17)) == addr(tim6), "the IRQ 17 vector");
         assert!(addr(handler(16 + 22)) == addr(tim17), "the IRQ 22 vector");
 
-        // every other external interrupt points at the default handler, like
-        // in the C rebuild (the original has real handlers at IRQ 7, 11, 17,
-        // 20 and 29 - the C rebuild does not use them either, they are the
-        // interrupts of the engines the reconstruction drives by polling)
+        // The interrupts the port serves.  The original has real handlers for
+        // IRQ 7, 9, 11, 13, 15, 17, 20, 22 and 29; the C rebuild and the
+        // earlier revisions of this port served only 9, 13, 15 and 22 (the
+        // rest of the engines were driven by polling).
+        //
+        // IRQ 7  (EXTI4_15)    - hwi_power's power-good line (FUN_0800976C)
+        // IRQ 17 (TIM6)        - the original's tick counter (FUN_0800A43C)
+        //
+        // IRQ 11 and 20 (the LED pattern engine on TIM15 + DMA1 ch5) and IRQ 29
+        // (the serial-link error path) are still served by polling, because the
+        // engines they belong to are not ported - arming them without handlers
+        // would spin forever on hardware.
+        const SERVED: [usize; 6] = [7, 9, 13, 15, 17, 22];
         for irq in 0..31usize {
-            if irq == 9 || irq == 13 || irq == 15 || irq == 22 {
+            if SERVED.contains(&irq) {
                 continue;
             }
             assert!(

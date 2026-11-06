@@ -8,12 +8,13 @@ use crate::mmio;
 /// The values are the ones the two callers pass in the dump: the BLE link
 /// (`FUN_08007F7C`) uses `cr2 = 0x2000` (two stop bits) and `cr3 = 0x300`, the
 /// console link (`FUN_08009A04`) uses `cr2 = 0` and `cr3 = 0`.
-#[derive(Clone, Copy)]
 pub struct Cfg {
     /// the baud rate
     pub baud: u32,
     /// the value OR'd into `CR2` (bit 13 = two stop bits)
     pub cr2: u16,
+    /// the value OR'd into `CR1` (e.g. 0x300 for PEIE|PS on BLE link)
+    pub cr1: u16,
     /// the value OR'd into `CR3`
     pub cr3: u16,
 }
@@ -21,7 +22,7 @@ pub struct Cfg {
 impl Cfg {
     /// A configuration with the given baud rate and no extra bits.
     pub const fn new(baud: u32) -> Self {
-        Cfg { baud, cr2: 0, cr3: 0 }
+        Cfg { baud, cr2: 0, cr1: 0, cr3: 0 }
     }
 }
 
@@ -60,8 +61,8 @@ pub fn init(usart: u32, cfg: &Cfg) {
     mmio::rmw16(usart + USART_CR1, |v| v & 0xFFFE);
     // the original: CR2 = (CR2 & 0xCFFF) | cfg.cr2
     mmio::rmw16(usart + USART_CR2, |v| (v & 0xCFFF) | cfg.cr2);
-    // RE + TE (the value of both callers of the dump)
-    mmio::rmw16(usart + USART_CR1, |v| (v & 0xE9F3) | 0x000C);
+    // CR1 value from config (e.g. 0x300 for PEIE|PS on BLE link)
+    mmio::rmw16(usart + USART_CR1, |v| (v & 0xE9F3) | cfg.cr1);
     // the value the caller passes for the CR3
     mmio::rmw16(usart + USART_CR3, |v| (v & 0xFCFF) | cfg.cr3);
     mmio::w16(usart + USART_BRR, brr as u16);
@@ -97,7 +98,16 @@ pub fn clear(usart: u32, mask: u32) {
     mmio::w32(usart + USART_ICR, mask);
 }
 
-/// `FUN_0800B4C0` - CR1.UE
+/// `FUN_000B4C0` (0x0800b4c0) - set CR1.UE.
+///
+/// The original does more: `FUN_0800806C` (BLE, 0x0800806c:8960) and the
+/// console enable path (`FUN_0009A04`, NVIC at ALL.c:10949, B4EC(0x50105) at
+/// 10963) set `CR1 |= 0x50105` through `FUN_000B4EC` - UE|RE plus the
+/// RXNEIE/TXNEIE interrupt-enable bits (the 0x50100 portion) - and arm the
+/// USART IRQ in NVIC with `FUN_000AB30` (0x0800ab30).  This port is polling:
+/// it sets only RE|TE|UE (CR1 0x000D) and reads ISR.RXNE (bit 5, `rx_ready`)
+/// / ISR.TC (bit 7, `tx_ready`) in `ble_com` instead, so those bits and the
+/// NVIC line are never set here.
 pub fn enable(usart: u32) {
     mmio::rmw16(usart + USART_CR1, |v| v | 1);
 }

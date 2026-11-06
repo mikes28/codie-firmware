@@ -20,15 +20,15 @@ reference implementation is `fw/` (untouched, read only).
 | the vector table and the reset handler | `src/startup.rs` | done |
 | `main()` - the boot sequence and the main loop | `src/boot.rs` | done |
 | the firmware binary target | `src/main.rs` | done |
-| the tests | `tests/{protocol,simulator,binary,binary_image,binary_ops,c_equivalence}.rs` | done, 8 tests green |
+| the tests | `tests/{protocol,simulator,binary,binary_image,binary_ops,c_equivalence,clock,usart}.rs` | done, 10 tests green |
 | the documentation | `README.md`, `ARCHITECTURE.md` (the flow graph), `PARITY.md`, `HAL_PARITY.md` | done |
 
 **Everything is green:**
 
 ```
 cargo check --all-targets      clean, no warnings
-cargo test                     8 passed, 0 failed
-cargo build --release --target thumbv6m-none-eabi   -> rust/build/fw.bin (13 432 B)
+cargo test                     10 passed, 0 failed
+cargo build --release --target thumbv6m-none-eabi   -> rust/build/fw.bin (13 544 B)
 python3 rust/verify_features.py rust/build/fw.bin   -> OK: every protocol visible
                                                         string of the original is present
 tools/run_sim.sh               -> all behavioural checks passed (the C did not move)
@@ -139,7 +139,41 @@ copy was dropped by the optimization (see `OPTIMIZATION.md`).
 | the 32 bit compare register writes of `hal::timer::pwm_set` and the "whole byte" output type of `hal::gpio::config` are kept as they are | they are the quirks of the original (the C helper of the `hwi_a_hal` slice clears the GPIO bits at offset `0x28`, the one of the `hwi_b_hal` slice at `0x1C`) |
 | the original shifts the output type of the GPIO by `2*pin` for the even pins (the C and the Rust use `pin`) | the decompilation of `FUN_0800A964` in `analysis/decomp/ALL.c` is wrong here; the review in `HAL_PARITY.md` derived the truth from the machine code of the dump.  The port follows the C (the reconstruction) |
 
-## 7. What is still open
+## 7. The bug-fix pass against the dump (2026-10-26)
+
+A whole-dump cross-check of the port against the machine code of
+`stm32_flash.bin` (see `FINDINGS.md` at the repo root for the full evidence
+trail) found and **fixed** these register-level defects, none of which the
+host tests could see:
+
+| # | what | the dump evidence |
+|---|---|---|
+| 1 | `hal::timer::channel_cfg` used the wrong CCMR field mask for the low byte of channels 1 and 3 (left CC1S/OC1M stale) | `FUN_0800AFDC` @0x800afec `movs r6,#0x73`; `FUN_0800B0F4` @0x800b104 |
+| 2 | `system::watchdog_init` wrote the IWDG values one register too high and invented a 0x0C window | `FUN_0800AAEC/aaf8/ab04` store to base+0/+4/+8, and `FUN_0800AB10/ab20` to base+0 |
+| 3 | `system::system_init` waited for PLLRDY on **bit 26** (never set → the firmware would hang before any peripheral came up) | `FUN_08002958` @0x8002a18 `lsls r2,r3,#18` → 0x0200_0000 = bit 25, `tst`/`beq` |
+| 4 | `system::system_init` gated the clock-tree path on HSEON (bit 16) instead of HSERDY (bit 17) | `FUN_08002958` @0x80029d4 `lsls r2,r2,#14` → bit 17, `bpl` |
+| 5 | `hwi_power` wrote the SYSCFG EXTICR of the **wrong register and the wrong field** - EXTI13 was never routed to GPIOC | `FUN_08009654` @0x80096b0 `movs r1,#13` → `FUN_0800AE34`; that helper computes `((line>>2)+2)<<2` = **EXTICR4** with the field at `(line&3)<<2` = bits 15:12 |
+| 6 | `gpio::write()` cleared the `hwi_a_hal` GPIO group with a **word** store | `FUN_08009E0C` @0x8009e20 `strh r1,[r2,#40]` = a halfword |
+| 7 | `hwi_buzz`'s tone timer prescaler was 96 | `FUN_08008380` @0x80083de `strh r7,[r1,#0]` with `r7 = 2` (set at 0x80083aa); the idle ARR is 24000 (`0x80083e2`, pool 0x5DC0) |
+| 8 | `hwi_led`'s timer prescaler/ARR and its pin map were from memory, not from the dump | `FUN_080079A0`: psc = 29 (`0x8007a24`), ARR = 0 (`0x8007a26`), pins PB14/PB12/PB15 on GPIOB, **PB14 in AF1** (`0x8007a16`) |
+| 9 | `hal::addr::TIM6` pointed at **SYSCFG** (`0x4001_0000`), so `timer::base_cfg(TIM6, ..)` reconfigured the wrong peripheral | `FUN_0800A464` @0x800a464 loads its base from the pool at 0x800a4b8 = **0x40001000**; `FUN_0800A43C` @0x800a43c uses `&DAT_40001000` |
+| 10 | `hal::adc::start` waited for ADSTART with **no bound** - a stuck conversion would hang the firmware permanently | `FUN_0800A704` @0x800a704 bound counter `0x0000_EFFF` (pool 0x800a750), decremented by 2, and returns 0 on timeout (`movs r0,#0` @0x800a730) |
+
+Also corrected three claims that the machine code does not support:
+
+* `MEMORY.md` says the buzzer timer uses "PSC 96"; the dump uses **2**
+  (`FUN_08008380` @0x80083de) - see item 7 above.
+* `MEMORY.md` says the BLE link's state line is **PA2**; the dump maps a
+  GPIOA mask of `0x400` = **PA10** (`FUN_08007F7C`, `0x80 << 3`). The code was
+  already right; only the note was.
+* An agent claimed the NVIC priority write is absent from the dump because no
+  `0xE000E400` literal exists in the image. It does exist in effect:
+  `FUN_0800AB30` computes the IPR address **base-relative**
+  (`0xE000E100 + ((irq>>2) + 0xc0) << 2`), so the constant never appears
+  literally. The read-modify-write at 0x800ab42/0x800ab60 is real and the
+  port's priority code was restored.
+
+## 8. What is still open
 
 * the on-hardware test (flash the image and check that the robot boots and
   answers over the command link) - the same open point as the C rebuild.
@@ -148,3 +182,23 @@ copy was dropped by the optimization (see `OPTIMIZATION.md`).
   `src/modules/hwi_led.rs` and `src/modules/hwi_drive.rs`).
 * the battery values still come from the local ADC; the original asks the BLE
   battery pack for them (`FUN_08006D34`).
+* **7 of the dump's 11 periodic engines have no port counterpart** - the
+  dump's `FUN_080063EC` also calls `FUN_080096EC` (BLE service, 800 ms),
+  `FUN_08008784` (motor fault poll), `FUN_080071C0` (ADC/DMA poll),
+  `FUN_08009EA0` (line sensor service), `FUN_08008130` (BLE AT re-send,
+  2000 ms), `FUN_080030D0` (mic sample, 500 ms), `FUN_080094F8` (line
+  sensor sample) and `FUN_08008574` (buzzer tone sequencer). The port's main
+  loop only runs `app_lights`, `app_drive` and `app_lightsense`. Several of
+  them publish over the BLE data channel, so they need a line-callback hook
+  in `ble_com` before they can be ported.
+* **the BLE pack query** (`call drvBattery hwInit` → `FUN_08006E94` sends an
+  8-byte `{0xcc,0x4e,1,0,0,0,0,parity}` frame and `FUN_08006D34` parses the
+  reply into voltage/current/remaining) is not implemented; it needs the same
+  callback hook.
+* **5 IRQ vectors fall to `Default_Handler`** - the dump has real handlers for
+  IRQ 7, 11, 17, 20 and 29 (the port implements 9, 13, 15 and 22). Arming
+  them without handlers would spin forever, so they stay unarmed until the
+  corresponding engines are ported.
+* the dump's millisecond tick comes from **TIM6** (psc 48, ARR 0xFFFF), which
+  is a ~65.5 ms update period, not 1 ms - the port's 1 kHz SysTick is the
+  deliberate and better-behaved choice; see `FINDINGS.md` §OPEN-7.

@@ -1,4 +1,34 @@
 //! drvBattery - the battery pack (C: `fw/modules/drv_battery.c`).
+//!
+//! Battery pack query flow (original state block 0x200004A0, fields at +2
+//! temp, +4 voltage, +6 current, +8 remaining).  The pack is a BLE device:
+//! the host speaks to it over USART3 (the BLE link) and parses the binary
+//! reply - the pack values never come from the local ADC (hwiAdc).
+//!
+//!   FUN_08006E94 (0x08006e94) - "hwInit": waits for the BLE line to be idle
+//!     (FUN_08007980(0)) and no callback registered (_DAT_200004ac == 0), then
+//!     emits the 8-byte frame {0xcc,0x4e,0x01,0,0,0,0,parity} and registers the
+//!     reply callback 0x8006ca1 (state -> 1).  Called by the
+//!     "call drvBattery hwInit" command (FUN_08006F2C, op==3).
+//!   FUN_08006E5C (0x08006e5c) - periodic: emits {0xcc,0x44} via
+//!     FUN_08006CFC (0x08006cfc) and registers FUN_08006D34 (callback slot
+//!     0x8006d35) as the reply handler (state -> 1).
+//!   FUN_08006F0C (0x08006f0c) - runs the registered callback each loop.
+//!   FUN_08006D34 (0x08006d34) - the 7-state reply machine: sends
+//!     {cc,0xb4} (FUN_08006D18, 0x08006d18), {cc,0xb8,..} (FUN_08006C60,
+//!     0x08006c60), {cc,0xbe,..} (FUN_08006CDC, 0x08006cdc), and parses the
+//!     BMS frame via FUN_08007D7C into 0x200004a2/044/046/048.
+//!
+//! PORT STATUS: this flow is not implemented - the C reconstruction's
+//! drvBattery_hwInit only zeroes the state (see fw/modules/drv_battery.c),
+//! so the fields below stay 0 on the simulated and real robot.  The missing
+//! half is a ble_com line-callback hook: the dump dispatches the BLE reply
+//! through FUN_08007D7C into the registered callback; the rebuild's
+//! ble_check_line is private and only matches the ASCII "BLE-RSP HELLO" /
+//! "BLE-RSP GAP" lines, so it cannot deliver a binary BMS frame to this
+//! module.  TX would be possible via ble_com::write, but without the RX parse
+//! the request is unpaired and is dropped (matching the C).
+//!
 
 use crate::hal::{addr, util};
 use crate::mmio;

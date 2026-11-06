@@ -24,12 +24,17 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::modules::ble_com::{out_char, out_str};
 use crate::state::Global;
 
-// --- op codes (FUN_0800A160) ---------------------------------------------
+// --- op codes (FUN_0800A160) ----------------------------------------------
+
+/// Op code: read a value.
 pub const OP_GET: u8 = 1;
+/// Op code: write a value.
 pub const OP_SET: u8 = 2;
+/// Op code: run an action.
 pub const OP_CALL: u8 = 3;
 
-// --- log levels (FUN_0800A2C0) -------------------------------------------
+// --- log levels (FUN_0800A2C0) --------------------------------------------
+
 pub const LOG_UNK: u8 = 0;
 pub const LOG_INF: u8 = 1;
 pub const LOG_DBG: u8 = 2;
@@ -74,10 +79,10 @@ pub fn log_word(level: u8) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// interface registry
+// Interface registry
 // ---------------------------------------------------------------------------
 
-/// The signature of an interface handler.
+/// The signature of an interface handler: (op_code, op_name, args).
 pub type Handler = fn(u8, &str, &str);
 
 /// One entry of the interface table of the original firmware.
@@ -96,8 +101,8 @@ static IFACE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Publish an interface.
 ///
-/// The original keeps a 16 entry table in RAM (a copy of the table in flash
-/// at 0x0800D164) and the dispatcher searches it BACKWARDS.  The rebuild
+/// The original keeps a 16-entry table in RAM (a copy of the table in flash
+/// at `0x0800D164`) and the dispatcher searches it BACKWARDS.  The rebuild
 /// fills the table from the init functions of the modules, which run in the
 /// order of the original table, so that the resulting order is the same:
 ///   hwiAdc hwiLed hwiDrive drvBattery hwiSonar bleCom hwiBuzz hwiMic
@@ -124,12 +129,12 @@ pub fn register(iface: Iface) {
 }
 
 // ---------------------------------------------------------------------------
-// replies
+// Replies
 // ---------------------------------------------------------------------------
 
 /// `FUN_0800A16C` - the value reply.
 pub fn resp_value(op: u8, iface: &str, opname: &str, value: &str) {
-    resp_value_opt(op, iface, opname, Some(value))
+    resp_value_opt(op, iface, opname, Some(value));
 }
 
 /// `FUN_0800A16C` - the value reply, with the "no value" case of the C.
@@ -172,7 +177,7 @@ pub fn resp_message(level: u8, text: &str, extra: Option<&str>) {
 
 /// `FUN_0800A1C8` - the greeting.
 ///
-/// The key/value block of the C is a NULL terminated array of pairs; a pair
+/// The key/value block of the C is a NULL-terminated array of pairs; a pair
 /// with a NULL value ends the greeting (the C writes the opening quote and
 /// then breaks out of the loop, so the closing quote is missing).  `None` is
 /// that NULL value.
@@ -209,24 +214,24 @@ pub fn resp_greeting(kv: &[(&str, Option<&str>)], msg: Option<&str>) {
 }
 
 // ---------------------------------------------------------------------------
-// request parser / dispatcher
+// Request parser / dispatcher
 // ---------------------------------------------------------------------------
 
 /// The tokenizer of the original (`FUN_0800B778`, strtok with the delimiter
-/// " "): leading delimiters are skipped, the token ends at the next space
+/// " "): leading delimiters are skipped, the token ends at the next space,
 /// and the rest of the line is the "args" of the request.
-struct Lexer<'a> {
+struct RequestTokenizer<'a> {
     s: &'a str,
     pos: usize,
 }
 
-impl<'a> Lexer<'a> {
+impl<'a> RequestTokenizer<'a> {
     fn new(s: &'a str) -> Self {
-        Lexer { s, pos: 0 }
+        RequestTokenizer { s, pos: 0 }
     }
 
     /// The next token, `None` at the end of the line.
-    fn next_token(&mut self) -> Option<&'a str> {
+    fn next_field(&mut self) -> Option<&'a str> {
         let b = self.s.as_bytes();
         while self.pos < b.len() && b[self.pos] == b' ' {
             self.pos += 1;
@@ -247,52 +252,68 @@ impl<'a> Lexer<'a> {
     }
 
     /// The rest of the line behind the last token.
-    fn rest(&self) -> &'a str {
+    fn args(&self) -> &'a str {
         &self.s[self.pos..]
+    }
+}
+
+/// Parse one request op token ("get" / "set" / "call").
+///
+/// Returns `None` for anything else, which the dispatcher turns into an
+/// "Invalid command!" message.
+fn parse_op(tok: &str) -> Option<u8> {
+    match tok {
+        "get" => Some(OP_GET),
+        "set" => Some(OP_SET),
+        "call" => Some(OP_CALL),
+        _ => None,
     }
 }
 
 /// `FUN_0800A0AC` + `FUN_0800A350` - parse a request and dispatch it.
 ///
 /// Returns true when an interface handled the request.
+///
+/// The original searches the registry BACKWARDS.
 pub fn dispatch(cmd: &str) -> bool {
-    let mut lex = Lexer::new(cmd);
+    let mut lex = RequestTokenizer::new(cmd);
 
-    let tok = match lex.next_token() {
+    // --- op ---
+    let op = match parse_op(match lex.next_field() {
         Some(t) => t,
         None => {
             resp_message(LOG_ERR, "Invalid command!", None);
             return false;
         }
-    };
-    let op = match tok {
-        "get" => OP_GET,
-        "set" => OP_SET,
-        "call" => OP_CALL,
-        _ => {
-            resp_message(LOG_ERR, "Invalid command!", None);
-            return false;
-        }
-    };
-
-    let iface = match lex.next_token() {
-        Some(t) => t,
+    }) {
+        Some(o) => o,
         None => {
             resp_message(LOG_ERR, "Invalid command!", None);
             return false;
         }
     };
 
-    let opname = match lex.next_token() {
+    // --- interface ---
+    let iface = match lex.next_field() {
         Some(t) => t,
         None => {
             resp_message(LOG_ERR, "Invalid command!", None);
             return false;
         }
     };
-    let args = lex.rest();
 
-    // the original searches the registry backwards
+    // --- op name ---
+    let opname = match lex.next_field() {
+        Some(t) => t,
+        None => {
+            resp_message(LOG_ERR, "Invalid command!", None);
+            return false;
+        }
+    };
+
+    let args = lex.args();
+
+    // The original searches the registry backwards.
     let list = IFACES.get();
     let count = IFACE_COUNT.load(Ordering::Relaxed);
     for i in (0..count).rev() {

@@ -10,7 +10,18 @@ swapped, and the clock constants disagree with the clock the code actually
 sets up.  Fix those before flashing anything to the robot.**  After that
 only the on-hardware test is left.
 
-Last updated: 2026-10-21
+**Update 2026-10-26** — a whole-dump cross-check of the Rust port against the
+machine code of `stm32_flash.bin` found and fixed ten register-level defects
+that the host tests could not see (IWDG offsets, the PLLRDY bit, the HSERDY
+gate, the power module's SYSCFG EXTICR register, the CCMR masks of timer
+channels 1/3, the buzzer prescaler, the LED timer base and pins). See
+`rust/PROGRESS.md` §7 and `FINDINGS.md` at the repo root. Two claims in this
+file that the machine code does not support are corrected in §11:
+the buzzer prescaler is 2 (not 96) and the BLE link's state line is PA10
+(not PA2). The 96 MHz / PLL-x6 clock tree and every peripheral base address
+below were re-confirmed against the dump.
+
+Last updated: 2026-10-26
 
 **READ FIRST**
 1. **§4** — USB (bootloading only!) and the two serial links, including the
@@ -425,3 +436,29 @@ or two with the `cortex-m-rt` template); the rest is a mechanical port of
   tools/ghidra_12.1.4_PUBLIC/` is required before running `analyzeHeadless`.
 * `tools/fw.elf` is the synthetic ELF used for the Ghidra import
   (regenerate with `.venv/bin/python tools/mkelf.py stm32_flash.bin tools/fw.elf`).
+
+
+---
+
+## 11. Corrections from the 2026-10-26 machine-code pass
+
+Claims in the earlier notes that `stm32_flash.bin` does **not** support:
+
+| was written | the machine code says |
+|---|---|
+| §5 "hwiBuzz: TIM16 CH1 on PB8 AF2, PSC 96" | the prescaler is **2** - `FUN_08008380` @0x80083de `strh r7,[r1,#0]` with `movs r7,#2` at 0x80083aa; the idle ARR is **24000** (`0x80083e2`, literal 0x5DC0). PB8/AF2 itself is correct. |
+| §5 / §4.2 "PA2 = input" for the BLE link | the dump maps a GPIOA mask of `0x400` = **PA10** (`FUN_08007F7C`, `lsls` #3 of 0x80). |
+| §4.4 "timer clock = 2 x APB" | true in the abstract, but the tone timer's divisor is computed as `(SystemCoreClock >> 1)/freq` - `FUN_0800849C` @0x800849c - i.e. the timer clock that matters for the buzzer is **SystemCoreClock/2 = 48 MHz**, and its own prescaler then divides again. The port's `TIMCLK_HZ = APB1_HZ/2` follows the dump. |
+| §5 "TIM15 + DMA1 ch5 → LED pattern engine (12 x 24 table)" | the LED DMA channel really is DMA1 ch5 (0x40020058) and the table really is at RAM 0x20000530 - but the transfer count is **0x10 = 16**, not 12x24 = 288 (`FUN_080079A0`, `local_64 = 0x10` passed to `FUN_0800A840`). The `0xa6`-byte transfer in `FUN_08009268` is the **sonar** (TIM17 + DMA1 ch1), not the LED engine. |
+
+And one register-address defect that had crept into the Rust port's map and is
+now fixed: `addr::TIM6` held `0x4001_0000` (the SYSCFG address) instead of the
+`0x4000_1000` that §2 lists and the dump uses (`FUN_0800A464` @0x800a464 loads
+it from the pool at 0x800a4b8; `FUN_0800A43C` @0x800a43c uses the same base).
+
+And what was re-confirmed: every peripheral base address in §2 (including
+TIM2 at 0x40000000, TIM6 at 0x40001000 and the EXTI controller at
+0x40010400), the RCC register offsets and clock-enable bit assignments of
+§2/§5, the interface table order at 0x0800D164, the greeting and reply
+formats, the reset magic words, the command reader's overflow behaviour and
+the ADC channel masks.

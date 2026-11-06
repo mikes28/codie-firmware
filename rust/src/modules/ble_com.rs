@@ -13,8 +13,12 @@ const BLE_USART: u32 = addr::USART3;
 const BLE_BAUD: u32 = 14400;
 /// the CR2 value the original passes (`FUN_08007F7C`): bit 13 = two stop bits
 const BLE_CR2: u16 = 0x2000;
+/// the CR1 value the original passes (`FUN_08007F7C`): RE+TE
+const BLE_CR1: u16 = 0x000C;
 /// the CR3 value the original passes (`FUN_08007F7C`)
 const BLE_CR3: u16 = 0x0300;
+/// the CR1 value the original passes (`FUN_08009A04`): RE+TE
+const CONSOLE_CR1: u16 = 0x000C;
 
 /// Receive ring buffer: 128 bytes like the original.
 const BLE_RX_SIZE: usize = 128;
@@ -57,16 +61,10 @@ struct State {
     console_err_flags: u32,
     /// Whether the module has been initialised.
     ble_ready: bool,
-    /// Last time a byte was received on the BLE link (ms tick).
-    #[allow(dead_code)]
-    ble_last_rx_ms: u32,
     /// Cached BLE USART ISR error bits.
     ble_err_flags: u32,
     /// Once the transmit timeout has been reported, don't repeat it.
     ble_timeout_reported: bool,
-    /// Set when the "BLE-RSP HELLO" answer has been seen.
-    #[allow(dead_code)]
-    ble_hello_seen: bool,
     /// The line buffer for BLE response matching.
     ble_line: [u8; BLE_LINE_SIZE],
     /// The length of the current line in ble_line.
@@ -79,10 +77,8 @@ static S: Global<State> = Global::new(State {
     console_rx: ring::Ring::new(),
     console_err_flags: 0,
     ble_ready: false,
-    ble_last_rx_ms: 0,
     ble_err_flags: 0,
     ble_timeout_reported: false,
-    ble_hello_seen: false,
     ble_line: [0; BLE_LINE_SIZE],
     ble_line_len: 0,
 });
@@ -143,8 +139,25 @@ fn console_poll() {
     }
 }
 
-/// `FUN_08007EC8` / `FUN_08008130` - collect the received bytes and report the
-/// USART errors exactly like the original does.
+/// `FUN_08007EC8` / `FUN_08008130` (0x08008130) - collect the received bytes
+/// and report the USART errors exactly like the original does.
+///
+/// Idle GAP re-emission (omitted by this port): the original's `FUN_08008130`
+/// re-emits a GAP command to the BLE link after 2000 ms idle (0x08008130:9025-
+/// 9030), reading the uptime from `FUN_000A558(0)` (not a per-RX stamp), as
+/// `FUN_08002AC0(0x39,2,2)` + `FUN_08002AC0(0x32,1)` (wrapper `FUN_0800661C`,
+/// 0x0800661C:7164) through the opaque printf formatter `FUN_08002AC0`
+/// (0x08002ac0, body at ALL.c:3609) whose emitter is `FUN_08007D88` (serout,
+/// 0x08007d88 -> USART3; `_DAT_20000f24` is set to it at 0x0800806C:8946).
+/// That payload is an undecodable bytecode template (the formatter indexes its
+/// format table at `(&DAT_0800b939)[param*0xc]`, ALL.c:3701), so it cannot be
+/// ported without reversing the interpreter.  The C reconstruction drops it
+/// too (`BLE_IDLE_TIMEOUT_MS` is an unused #define in fw/modules/bleCom.c) and
+/// the firmware-vs-dump sim (MEMORY.md §4.5) never exercises the GAP exchange.
+/// The `ble_last_rx_ms`/`ble_hello_seen` fields that scaffolded this branch are
+/// removed with it: `ble_last_rx_ms` is dead (no reader) and also does not match
+/// the dump's uptime timer, and `ble_hello_seen` has no counterpart in
+/// `FUN_0800663C` (which just prints "BLE-RSP HELLO").
 fn ble_poll_rx() {
     while usart::rx_ready(BLE_USART) {
         let c = usart::getc(BLE_USART);
@@ -154,7 +167,6 @@ fn ble_poll_rx() {
             out_str("BUFOVF!!!!!\n");
             break;
         }
-        S.get().ble_last_rx_ms = util::millis();
     }
 
     let isr = usart::status(BLE_USART) & 0x1F;
@@ -218,7 +230,6 @@ fn ble_check_line() {
     S.get().ble_line_len = 0;
 
     if is_hello {
-        S.get().ble_hello_seen = true;
         out_str("BLE-RSP HELLO\n");
     } else if is_gap {
         out_str("BLE-RSP GAP SET MODE: ");
@@ -256,8 +267,8 @@ pub fn init() {
         pull: 0,
     };
     gpio::config_per_pin(addr::GPIOB, &cfg);
-    gpio::set_af(addr::GPIOB, 1, 4);
-    gpio::set_af(addr::GPIOB, 13, 4);
+    gpio::set_afr(addr::GPIOB, 1, 4);
+    gpio::set_afr(addr::GPIOB, 13, 4);
 
     // GPIOC: PC4 and PC5 as alternate function (AF1)
     let cfg = gpio::PerPinCfg {
@@ -268,10 +279,13 @@ pub fn init() {
         pull: 0,
     };
     gpio::config_per_pin(addr::GPIOC, &cfg);
-    gpio::set_af(addr::GPIOC, 4, 1);
-    gpio::set_af(addr::GPIOC, 5, 1);
+    gpio::set_afr(addr::GPIOC, 4, 1);
+    gpio::set_afr(addr::GPIOC, 5, 1);
 
-    // GPIOA: PA2 is an input (the module's state line)
+    // GPIOA: PA10 is an input (the module's state line).  `mask = 0x400` is
+    // bit 10: FUN_08007F7C builds 0x400 from `movs r1,#0x80; lsls r2,r1,#3`
+    // and config_per_pin (FUN_000A964) selects pin 10, so PA10 - not PA2 as
+    // MEMORY.md §5 (line 245) claims.
     let cfg = gpio::PerPinCfg {
         mask: 0x400,
         mode: gpio::MODE_INPUT,
@@ -293,9 +307,16 @@ pub fn init() {
     // FUN_08007F7C passes cfg[2]=0x2000 (two stop bits) and cfg[5]=0x300
     usart::init(
         BLE_USART,
-        &usart::Cfg { baud: BLE_BAUD, cr2: BLE_CR2, cr3: BLE_CR3 },
+        &usart::Cfg { baud: BLE_BAUD, cr2: BLE_CR2, cr1: BLE_CR1, cr3: BLE_CR3 },
     );
-    usart::enable(BLE_USART); // CR1.UE, FUN_0800B4C0
+    // The original's BLE enable (FUN_0800806C, 0x0800806c:8960) also calls
+    // FUN_000B4EC(0x40004800, 0x50105, 1) -> CR1 |= 0x50105 (UE|RE plus the
+    // RXNEIE/TXNEIE interrupt-enable bits) and arms the USART IRQ via
+    // FUN_000AB30 (0x0800ab30, NVIC_EnableIRQ).  This port is polling: it
+    // sets only RE|TE|UE (CR1 0x000D) and drains ISR.RXNE in `ble_poll_rx`,
+    // so the IRQ-enable bits and the NVIC line are left clear.  See
+    // `usart::enable`.
+    usart::enable(BLE_USART);
 
     // The console / command link (FUN_08009A04): the console USART is
     // on APB1ENR bit 19, GPIOC PC10 (TX) and PC11 (RX) are alternate
@@ -309,23 +330,23 @@ pub fn init() {
         pull: gpio::PULL_UP,
     };
     gpio::config_per_pin(addr::GPIOC, &cfg);
-    gpio::set_af(addr::GPIOC, 10, 0);
-    gpio::set_af(addr::GPIOC, 11, 0);
+    gpio::set_afr(addr::GPIOC, 10, 0);
+    gpio::set_afr(addr::GPIOC, 11, 0);
 
     // FUN_08009A04 passes cfg[2]=0 and cfg[5]=0 (one stop bit, no CR3 bits)
     usart::init(
         CONSOLE_USART,
-        &usart::Cfg { baud: CONSOLE_BAUD, cr2: CONSOLE_CR2, cr3: CONSOLE_CR3 },
+        &usart::Cfg { baud: CONSOLE_BAUD, cr2: CONSOLE_CR2, cr1: CONSOLE_CR1, cr3: CONSOLE_CR3 },
     );
+    // Console enable (FUN_0009A04) likewise sets CR1 |= 0x50105 + NVIC; we
+    // poll ISR instead - see `usart::enable` and the BLE enable above.
     usart::enable(CONSOLE_USART);
 
     {
         let s = S.get();
         s.console_err_flags = 0;
-        s.ble_last_rx_ms = util::millis();
         s.ble_err_flags = 0;
         s.ble_timeout_reported = false;
-        s.ble_hello_seen = false;
         s.ble_line_len = 0;
         s.ble_ready = true;
     }

@@ -171,12 +171,14 @@ fn the_image_carries_the_surface_of_the_original() {
         "the reset vector 0x{:08X} has no thumb bit",
         reset
     );
-    // the SysTick and the four interrupts the modules use
+    // the SysTick and the six interrupts the port serves
     for (index, what) in [
         (15usize, "SysTick"),
+        (16 + 7, "IRQ 7 (EXTI4_15, the power-good line)"),
         (16 + 9, "IRQ 9 (DMA1 channel 1)"),
         (16 + 13, "IRQ 13 (TIM1)"),
         (16 + 15, "IRQ 15 (TIM2)"),
+        (16 + 17, "IRQ 17 (TIM6, the original's tick)"),
         (16 + 22, "IRQ 22 (TIM17)"),
     ] {
         let addr = read_u32_le(&image, index * 4);
@@ -188,9 +190,14 @@ fn the_image_carries_the_surface_of_the_original() {
         );
     }
     // the default handler of the interrupts the firmware does not use
+    //
+    // IRQ 11 and 20 (the LED pattern engine) and IRQ 29 (the serial error
+    // path) are still driven by polling: their engines are not ported, so
+    // arming them without handlers would spin forever on hardware.
     let default = read_u32_le(&image, 16 * 4);
+    const SERVED: [usize; 6] = [7, 9, 13, 15, 17, 22];
     for irq in 0..31usize {
-        if irq == 9 || irq == 13 || irq == 15 || irq == 22 {
+        if SERVED.contains(&irq) {
             continue;
         }
         let addr = read_u32_le(&image, (16 + irq) * 4);

@@ -18,15 +18,25 @@ use crate::state::Global;
 const APP_LS_SENSORS: usize = 2;
 const APP_LS_LEDS: usize = 11;
 
+/// The interval between two light samples, in milliseconds.
+///
+/// The original gates the sampling on the `ttpms` value of its version block
+/// (`FUN_08009340`: `_DAT_2000086a`), which the greeting publishes as
+/// `"ttpms":"1000"`.
+const LIGHT_SAMPLE_MS: u32 = 1000;
+
 /// The state of the module (the C file scope variables).
 struct State {
     level: [u16; APP_LS_SENSORS],
     brightness: u8,
+    /* when the next sample may be taken (the millisecond tick) */
+    next_sample_ms: u32,
 }
 
 static S: Global<State> = Global::new(State {
     level: [0; APP_LS_SENSORS],
     brightness: 0,
+    next_sample_ms: 0,
 });
 
 /// the interface handler of the module
@@ -40,9 +50,22 @@ pub fn handler(_op: u8, _opname: &str, _args: &str) {
 /// `appLightSense_tick`
 ///
 /// from the application tick of the original: read the ambient light and
-/// dim the LED array accordingly
+/// dim the LED array accordingly.
+///
+/// Time-gated like the original (`FUN_08009340`): it stamps the time with
+/// `FUN_0800A558(0x20000fc8,&...)` and only samples when the interval at
+/// `0x2000086a` has passed.  That interval is the `ttpms` value of the
+/// version block ("1000" = once per second).
 pub fn tick() {
     let st = S.get();
+
+    // the dump's millisecond gate (the ttpms interval)
+    let now = crate::hal::util::millis();
+    if now < st.next_sample_ms {
+        return;
+    }
+    st.next_sample_ms = now + LIGHT_SAMPLE_MS;
+
     let mut sum: u32 = 0;
 
     for i in 0..APP_LS_SENSORS {
@@ -66,6 +89,7 @@ pub fn init() {
         st.level[i] = 0;
     }
     st.brightness = 0;
+    st.next_sample_ms = crate::hal::util::millis() + LIGHT_SAMPLE_MS;
     proxy::register(proxy::Iface {
         name: "appLightSense",
         handler: handler,

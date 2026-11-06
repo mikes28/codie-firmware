@@ -4,7 +4,7 @@
 # C source:      fw/ (the C reconstruction of the original firmware)
 # Harness:       tools/host_sim.c (the C firmware on the host against
 #                a fake memory mapped peripheral map)
-# Date:          2026-10-22 10:41:58 UTC
+# Date:          2026-10-22 23:26:04 UTC
 #
 # The facts below are what the C firmware did during the scenario of
 # tools/host_sim.c: the boot, then the commands
@@ -17,21 +17,6 @@
 #   set hwiDrive dutyB 100
 #   call drvBattery hwInit
 #
-# NOTE on the register facts: the four facts
-#   reg.usart3.cr2, reg.usart4.cr2, reg.usart3.cr3, reg.usart4.cr3
-# are corrected to the values of the ORIGINAL BINARY (stm32_flash.bin).
-# The C firmware writes different ones, because its hwi_usart_init computes
-# the CR2 value as `(stop_bits & 1) << 13` (which maps 2 stop bits to 0) and
-# the CR3 value as the constant 0x000C.  The dump's FUN_0800B3FC is a
-# generic init that takes the values from the caller, and both callers pass
-# them directly: FUN_08007F7C (the BLE link, USART3) passes cfg[2]=0x2000
-# (two stop bits) and cfg[5]=0x300, FUN_08009A04 (the console link, USART4)
-# passes 0 for both.  The dump is the ground truth, so the Rust port follows
-# the dump and this fixture does too - see rust/src/hal/usart.rs.
-# The C firmware also never enabled the transmitter and the receiver
-# (it wrote 0x0300 into CR1 instead of 0x000C), which the simulator could
-# not see because it wraps the USART primitives.
-
 # Format: "key: value", one fact per line.
 #   <n>.cmdlink.tx  the bytes the firmware sent on USART4 (the command
 #                   and reply link), hex encoded
@@ -41,8 +26,9 @@
 
 boot.cmdlink.tx: 424c452d626f6f740a63616c6c203a70726f7879206772656574696e672022766572223a22302e352e306877322e312220226d6174223a223422202264617465223a22313630323132313431392220227474706d73223a22313030302220222b61636b223a2230220a
 boot.atlink.tx: 
+boot.periodic.cmdlink.tx: PPRT
 cmd.1.name: get drvBattery voltage
-cmd.1.cmdlink.tx: 736574206472764261747465727920766f6c7461676520300a505052540a
+cmd.1.cmdlink.tx: 736574206472764261747465727920766f6c7461676520300a
 cmd.1.atlink.tx: 
 cmd.2.name: get drvBattery chargeStat
 cmd.2.cmdlink.tx: 7365742064727642617474657279206368617267655374617420310a
@@ -74,3 +60,4 @@ reg.usart3.cr2: 8192
 reg.usart4.cr2: 0
 reg.usart3.cr3: 768
 reg.usart4.cr3: 0
+periodic.cmdlink.tx: PPRT

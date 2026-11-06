@@ -248,7 +248,7 @@ State column:
 
 | C function | C file | Rust counterpart | Rust file | state | note |
 |---|---|---|---|---|---|
-| `hwiLed_init` | `fw/modules/hwi_led.c:45` | `hwi_led::init` | `rust/src/modules/hwi_led.rs:42` | renamed | TIM15, AF2, `PSC = 96`, `ARR = 255` |
+| `hwiLed_init` | `fw/modules/hwi_led.c:45` | `hwi_led::init` | `rust/src/modules/hwi_led.rs:42` | renamed | TIM15. The dump values (`FUN_080079A0`): `PSC = 29` (0x8007a24), `ARR = 0` (0x8007a26), pins PB14/PB12/PB15 on GPIOB, PB14 in **AF1** (0x8007a16). The C header said 96/255/AF2 - the dump wins. |
 | `hwiLed_set` | `fw/modules/hwi_led.c:86` | `hwi_led::set` | `rust/src/modules/hwi_led.rs:80` | renamed | |
 | `hwiLed_set_pwm` | `fw/modules/hwi_led.c:101` | `hwi_led::set_pwm` | `rust/src/modules/hwi_led.rs:98` | renamed | |
 | `hwiLed_pattern_request` | `fw/modules/hwi_led.c:119` | `hwi_led::pattern_request` | `rust/src/modules/hwi_led.rs:118` | renamed | "PPRT\n" |

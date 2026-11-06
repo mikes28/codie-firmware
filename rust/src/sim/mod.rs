@@ -155,6 +155,13 @@ fn timer_base(addr: u32) -> Option<u32> {
 }
 
 fn bus_read32(addr: u32) -> u32 {
+    // the ready flag the original waits for before it enables the watchdog:
+    // bit 1 of RCC+0x24 (see `system::watchdog_init`).  On the host the
+    // oscillator is ready from the start.
+    if addr == RCC + 0x24 {
+        return 0x0000_0002;
+    }
+
     if let Some(base) = usart_base(addr) {
         let off = addr - base;
         if off == USART_ISR {
