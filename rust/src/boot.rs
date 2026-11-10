@@ -20,10 +20,20 @@ use crate::system;
 const RESET_MAGIC0: u32 = 0x19C3FE40;
 const RESET_MAGIC1: u32 = 0xD7E5F7A8;
 
-/// Two `static` cells hold the reset-cause magic left by the reset path.
+/// Two cells hold the reset-cause magic left by the reset path.
+///
 /// The original used `static volatile uint32_t`; `AtomicU32` is the Rust
 /// counterpart that is safe to touch from an interrupt.
+///
+/// These MUST NOT live in `.bss`: `Reset_Handler` zero-fills `.bss`, so a
+/// `.bss` cell is 0 again on the boot that follows the watchdog-forced
+/// reset, and the bootloader entry would be silently dead.  `.noinit` is
+/// NOLOAD and no startup code touches it, which is what the original gets
+/// for free by writing to fixed addresses (`0x200017A8` / `0x200025A8`)
+/// outside every section the startup owns.
+#[link_section = ".noinit"]
 static RESET_MAGIC0_CELL: AtomicU32 = AtomicU32::new(0);
+#[link_section = ".noinit"]
 static RESET_MAGIC1_CELL: AtomicU32 = AtomicU32::new(0);
 /// Bootloader entry state (matches dump RAM at 0x20000410).
 ///

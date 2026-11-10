@@ -109,6 +109,27 @@ SECTIONS
     . = ALIGN(8);
   } >RAM
 
+  /* The reset-cause magic block: RAM that Reset_Handler must NOT zero.
+   * The original writes its two magic words to 0x200025A8 / 0x200017A8 -
+   * addresses no startup code owns, so they keep their contents across the
+   * watchdog-forced reset that the bootloader entry relies on.  Anything in
+   * .bss is zero-filled at boot and therefore cannot serve that purpose.
+   * NOLOAD: the contents are never loaded from flash.
+   *
+   * It is placed at the very top of RAM, matching the original's 0x200025A8
+   * (the 16 KB RAM ends at 0x20004000) and clear of the 4 B stack-reservation
+   * tail the original also keeps there.
+   */
+  .noinit (NOLOAD) :
+  {
+    . = ALIGN(4);
+    PROVIDE(_snoinit = .);
+    *(.noinit)
+    *(.noinit*)
+    . = ALIGN(4);
+    PROVIDE(_enoinit = .);
+  } >RAM
+
   /* The exception index is discarded: panic = "abort" means there is no
    * unwinder at all (see the .ARM section above).  The libc/libm/libgcc
    * patterns are the ones of the C rebuild; the Rust link pulls in neither

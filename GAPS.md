@@ -17,6 +17,7 @@ All of it is in `rust/src/boot.rs`:
 | PA12 / USB VBUS poll, rising edge → state 2, LED anim state 4 (red) | `boot.rs` main loop, PA12 edge detect | `boot.rs:313-323`, statics `PA12_LAST` `boot.rs:40` |
 | Button (PC13) press → state 2 → 3 | `boot.rs` main loop, PC13 edge detect + `link_alt_callback` | `boot.rs:325-333`, `boot.rs:361-365` |
 | state 3 && LED state 4 → write magic words, spin on watchdog until reset | `boot.rs` main loop, magic-word block | `boot.rs:337-346` |
+| Magic words survive the reset (not in `.bss`) | `#[link_section = ".noinit"]` cells + NOLOAD `.noinit` in the linker script | `boot.rs:34-37`, `linker/stm32g071rb.ld`; pinned by `tests/noinit.rs` |
 | Magic words 0xD7E5F7A8 / 0x19C3FE40 left in RAM | `RESET_MAGIC0_CELL` / `RESET_MAGIC1_CELL` | `boot.rs:20-27`, checked at `boot.rs:170-182` |
 | RAM state `0x20000410` (bootloader state), `0x2000035e` (LED anim state) | `BOOTLOADER_STATE` / `LED_ANIMATION_STATE` | `boot.rs:28-38` |
 

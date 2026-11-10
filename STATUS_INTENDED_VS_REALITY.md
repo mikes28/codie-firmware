@@ -9,8 +9,8 @@ Ground truth used here:
 | Item | Value |
 |---|---|
 | Original image | `stm32_flash.bin`, 131 072 B, 3 658 B of strings |
-| Rust image | `rust/build/fw.bin`, **14 864 B** (11.4 % of flash) |
-| Tests | `cd rust && cargo test` → **19 passed, 0 failed**, three consecutive runs |
+| Rust image | `rust/build/fw.bin`, **22 916 B** (17.5 % of flash) |
+| Tests | `cd rust && cargo test` → **21 passed, 0 failed**, eight consecutive runs |
 | Compile | `cargo check --all-targets` → 0 errors, 0 warnings |
 | Unported dump functions | 2 — `FUN_08002578`, `FUN_080021A8` (64-bit division helpers) |
 
@@ -76,35 +76,56 @@ Everything above is verified against a host peripheral model (`src/sim/mod.rs`)
 and machine-code cross-checks. **Nothing has ever run on the robot.** The image is
 flashable (`rust/build/fw.bin`) but §4 below has never been performed.
 
-### 3.2 Bootloader entry is arithmetically dead
+### 3.2 Bootloader magic words were in `.bss` — FIXED this session
 
-Verified from the release ELF (`arm-none-eabi-objdump -h` / `-t`):
+The dump's reset-cause test (`FUN_08009FA4` @0x8009fa4) compares two fixed RAM
+words, `0x200017A8` (`0x19C3FE40`) and `0x200025A8` (`0xD7E5F7A8`), both written
+before the watchdog-forced reset by the bootloader-entry block in `FUN_080063EC`.
+
+**The bug.** The port kept them in `AtomicU32` statics, which rustc places in
+`.bss`. Verified from the release ELF *before* the fix:
 
 | Cell | Address | Section |
 |---|---|---|
 | `RESET_MAGIC0_CELL` | `0x200004c8` | `.bss` |
 | `RESET_MAGIC1_CELL` | `0x200004cc` | `.bss` |
-| `.bss` span | `0x200001e8` – `0x200005f8` (4 128 B) | zero-filled at boot |
+| `.bss` span | `0x200001e8` – `0x200005f8` | **zero-filled at boot** |
 
-The port's boot-loader entry writes the magic words to those cells. But the reset
-the watchdog forces re-runs `Reset_Handler`, which zero-fills `_sbss.._ebss`
-(`startup.rs:45-60`) — so on the second boot `RESET_MAGIC0_CELL == 0` and the
-reset-cause test at `boot.rs:170` fails.
-
-The original survives this only because it writes to fixed RAM addresses
-`0x200025A8` / `0x200017A8`, which lie **above** `.bss`'s `0x200005f8` end — no
-startup code touches them, so they keep their contents across the reset.
+`Reset_Handler` (`startup.rs`) zero-fills `_sbss.._ebss`, so on the boot that
+follows the reset both cells read 0 again and the test at `boot.rs` fails. The
+original survives only because `0x200017A8`/`0x200025A8` sit **above** `.bss` — no
+startup code owns them.
 
 **Result on real hardware:** USB → button → LEDs red → watchdog reset → the
 firmware boots normally instead of jumping to the ROM bootloader. The state
-machine, the LED animation and the magic-word write all work; the *persistence
-across the reset* does not.
+machine, the LED animation and the magic-word write all work; only *persistence
+across the reset* was broken.
 
-**Fix (not yet applied):** the two magic words must live at absolute addresses
-outside `.bss` (e.g. a `#[link_section = ".uninit"]` cell or a raw
-`0x200025A8`/`0x200017A8` pointer write), and `run()`'s reset-cause test must read
-those addresses. This is the single highest-value fix in the port and is still
-open — flagged here rather than silently shipped.
+**Fix applied.** `RESET_MAGIC0_CELL` / `RESET_MAGIC1_CELL` now carry
+`#[link_section = ".noinit"]`, and `linker/stm32g071rb.ld` defines a matching
+NOLOAD section placed above `._user_heap_stack`:
+
+| Cell | Address | Section |
+|---|---|---|
+| `RESET_MAGIC0_CELL` | `0x20000ff0` | `.noinit` (NOLOAD) |
+| `RESET_MAGIC1_CELL` | `0x20000ff4` | `.noinit` (NOLOAD) |
+| `.bss` span | `0x200001e8` – `0x200005f0` | zero-filled at boot, as before |
+
+Verified after the fix with `arm-none-eabi-objdump -h` and `-t` against
+`target/thumbv6m-none-eabi/release/codie-fw` (built by `./build.sh`):
+`.noinit` occupies `0x20000ff0` with size 8 and carries **no** LOAD/CONTENTS
+flags, and both symbols report section `.noinit`. Nothing else in the firmware
+touches that range, so `.bss` zeroing can no longer erase the magic words.
+
+**Two caveats worth stating.** (a) `cargo build --release` *alone* does not link
+the script's new output section — only `./build.sh` does, because `build.sh`
+passes `-Map=` and its own explicit flag list; a bare `cargo build` left the
+statics in `.bss`. The firmware image is only produced by `./build.sh`, so this
+is a build-procedure detail, not a regression, but it makes the fix invisible to
+anyone who verifies with `cargo build` instead. (b) `boot::run()`'s reset-cause
+branch still runs `power_fail_mode()` and the ROM jump at `0x1FFFC804` from the
+original's addresses; the port's own path is unchanged and was already
+faithful — only the storage of the words moved.
 
 ### 3.3 The LED "red" animation can never satisfy its own gate
 
@@ -184,12 +205,21 @@ firmware defect; not yet fixed.
 
 The firmware keeps module state in `Global<T>` statics (`src/state.rs`) and the
 peripheral model in one `LazyLock<Mutex<…>>`. Tests running in parallel interleave
-their sequencer phases, which made `tests/battery.rs` fail ~2 of 3 runs
-("left: 0, right: 5000"). Fixed this session by serialising `tests/battery.rs`
-behind a file-level `Mutex` — the same reasoning `tests/periodic.rs` and
-`tests/usart.rs` already state in their headers. `tests/simulator.rs` and
-`tests/c_equivalence.rs` are already single-test files. Deterministic now:
-19/19 across three consecutive runs.
+their sequencer phases.
+
+Two files were affected, both found this session by re-running the suite after the
+first fix rather than trusting a single green run:
+
+* `tests/battery.rs` failed ~2 of 3 runs ("left: 0, right: 5000") — the 5 tests
+  drove the same sequencer state from parallel threads.
+* `tests/usart.rs` failed ~1 in 6 runs — `line_sensor_service_tick_fires_start_then_done`
+  asserts the line flag is *not* armed at entry, but the other two tests in the
+  file register callbacks on the same `ble_com` statics and leave armed state
+  behind.
+
+Both files now serialize their tests behind a file-level `Mutex`, the same
+reasoning `tests/periodic.rs` and `tests/usart.rs` state in their headers.
+Deterministic now: **21/21 across eight consecutive full-suite runs.**
 
 ### 3.11 64-bit division helpers unported (harmless)
 
@@ -202,8 +232,7 @@ family. Rust emits native `u64` division for the target. No behaviour lost.
 
 | Status | Count | What |
 |---|---:|---|
-| ✅ Works as intended (host-verified, dump-evidenced) | 22 | Everything in §2, including all 11 periodic engines, all 9 IRQs, the complete protocol surface, LED encoding, tone sequencer, drive loop, and the full battery reply machine |
-| ⚠️ Works, but wrong survival semantics | 1 | Bootloader entry: the state machine fires, but the magic words are in `.bss` and get zeroed by the reset, so the ROM bootloader is never entered (§3.2) |
+| ✅ Works as intended (host-verified, dump-evidenced) | 23 | Everything in §2, plus the reset-cause magic-word storage moved out of `.bss` into a NOLOAD `.noinit` block (§3.2) |
 | ⚠️ Works, but fragile | 1 | LED animation state duplicated between `boot.rs` and `app_lights` (§3.3) |
 | ⚠️ Works, but diverges from the dump | 2 | PC13 edge- vs level-detect (§3.4); motor fault flags conflated across both motors (§3.5) |
 | ⚠️ Never validated on hardware | — | The whole image (§3.1) |
@@ -212,7 +241,9 @@ family. Rust emits native `u64` division for the target. No behaviour lost.
 | ➖ Intentionally not ported | 2 | 64-bit division helpers — Rust native division covers them (§3.11) |
 
 **Bottom line:** every function in the original now has a port counterpart, the
-suite is green, and the image builds at 14 864 B. The two things standing between
-this firmware and a working robot are (a) the `.bss` magic-word fix in §3.2 —
-without it the bootloader-entry button sequence silently does nothing on real
-hardware — and (b) actually flashing it.
+suite is green (21 tests, deterministic across eight consecutive runs), and the
+image builds at 22 916 B. The `.bss` magic-word defect that would have silently
+killed the bootloader-entry button sequence on real hardware is fixed (§3.2) and
+verified in the ELF. One thing is left: **actually flashing it and running the
+checklist in `TODO_TO_FLASH.md`** — including the USB → button → red → ROM
+bootloader sequence, which no test on the host can prove.

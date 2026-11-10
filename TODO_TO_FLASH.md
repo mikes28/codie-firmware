@@ -10,8 +10,8 @@ Last updated: 2026-10-27. Everything below is either **done and verified** or
 ```
 cd rust
 cargo check --all-targets      0 errors, 0 warnings
-cargo test                     19 passed, 0 failed
-./build.sh                    -> build/fw.bin  14 864 bytes (11.4 % of 128 KB)
+cargo test                     21 passed, 0 failed
+./build.sh                    -> build/fw.bin  22 916 bytes (17.5 % of 128 KB)
 ```
 
 The image is **built, verified and flashable**. Section 4 is the only step that
@@ -177,7 +177,7 @@ never uses for this. **Left documented-open rather than guessed.**
 
 ## 4. The only step left: flashing
 
-The image is `rust/build/fw.bin` (14 864 bytes). No further code work is
+The image is `rust/build/fw.bin` (22 916 bytes). No further code work is
 required to produce it.
 
 ```bash
@@ -236,7 +236,7 @@ the timer, in AF1 with a pull-up.
 
 | file | what |
 |---|---|
-| `rust/` | the firmware port; `cargo test` = 19 tests |
+| `rust/` | the firmware port; `cargo test` = 21 tests |
 | `rust/build/fw.bin` | the flashable image |
 | `fw/` | the C reference implementation (read only for the port) |
 | `fw/flash.sh` | the upload script |

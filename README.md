@@ -2,7 +2,7 @@
 
 Raw dump of the robot's STM32 bootloader flash, captured over USB DFU on 2026-10-21.
 
-> [`MEMORY.md`](MEMORY.md) holds the full analysis notes (chip identification, protocol, register map, recovered module behaviour). The original firmware was decompiled (371/378 functions, Ghidra) and rebuilt as a Rust port in [`rust/`](rust/) — same register map, same wire protocol, `cargo test` green (19 tests), image 14 864 bytes.
+> [`MEMORY.md`](MEMORY.md) holds the full analysis notes (chip identification, protocol, register map, recovered module behaviour). The original firmware was decompiled (371/378 functions, Ghidra) and rebuilt as a Rust port in [`rust/`](rust/) — same register map, same wire protocol, `cargo test` green (21 tests), image 22 916 bytes (17.5 % of flash).
 >
 > [`FEATURES.md`](FEATURES.md) tracks every feature implemented vs. missing in the port.
 
@@ -243,8 +243,8 @@ All nine IRQ vectors are armed and served (they are listed in src/startup.rs's V
 
 ```bash
 cd rust
-cargo test        # 19 tests, green
-cargo build       # firmware image, 14 864 bytes
+cargo test        # 21 tests, green
+cargo build       # firmware image, 22 916 bytes (21 tests)
 ```
 
 - Target: Cortex-M0+, STM32F0x1 / G0x1-class (128 KB flash @ `0x08000000`, 16 KB RAM @ `0x20000000`)

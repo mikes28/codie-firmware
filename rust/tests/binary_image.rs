@@ -191,11 +191,12 @@ fn the_image_carries_the_surface_of_the_original() {
     }
     // the default handler of the interrupts the firmware does not use
     //
-    // IRQ 11 and 20 (the LED pattern engine) and IRQ 29 (the serial error
-    // path) are still driven by polling: their engines are not ported, so
-    // arming them without handlers would spin forever on hardware.
+    // Every IRQ the dump serves now has a handler in this port: IRQ 7, 9, 11,
+    // 13, 15, 17, 20, 22 and 29 are in `startup::VECTORS` and armed through
+    // `nvic::enable`.  All other interrupt lines must stay on the default
+    // handler - arming them would spin forever on hardware.
     let default = read_u32_le(&image, 16 * 4);
-    const SERVED: [usize; 6] = [7, 9, 13, 15, 17, 22];
+    const SERVED: [usize; 9] = [7, 9, 11, 13, 15, 17, 20, 22, 29];
     for irq in 0..31usize {
         if SERVED.contains(&irq) {
             continue;
