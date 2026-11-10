@@ -5,6 +5,7 @@
 //! The `off()` path clears the hold line and then spins forever, kicking the
 //! watchdog so the supply collapses.
 
+use crate::modules::ble_com;
 use crate::hal::{addr, gpio, rcc, util};
 use crate::mmio;
 use crate::proto::{fmt, proxy};
@@ -150,11 +151,15 @@ pub extern "C" fn EXTI4_15_IRQHandler() {
 
     if level_high {
         st.rising_edges += 1;
+        // pin high -> DAT_200008c9++ (link flag 1), arm falling edge
+        ble_com::raise_link_flag();
         // arm the falling edge next
         mmio::rmw32(addr::EXTI + addr::EXTI_FTSR, |v| v | PWR_SENSE_MASK);
         mmio::rmw32(addr::EXTI + addr::EXTI_RTSR, |v| v & !PWR_SENSE_MASK);
     } else {
         st.falling_edges += 1;
+        // pin low -> DAT_200008ca++ (link flag 2), arm rising edge
+        ble_com::raise_link_flag2();
         // arm the rising edge next
         mmio::rmw32(addr::EXTI + addr::EXTI_FTSR, |v| v & !PWR_SENSE_MASK);
         mmio::rmw32(addr::EXTI + addr::EXTI_RTSR, |v| v | PWR_SENSE_MASK);

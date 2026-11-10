@@ -339,6 +339,13 @@ pub fn set_arr(tim: u32, arr: u32) {
     mmio::w32(tim + TIM_ARR, arr);
     mmio::w16(tim + TIM_EGR, 1);
 }
+/// `FUN_0800af90` - CR1 bit 3, one-pulse mode.
+///
+/// The original computes `CR1 = (CR1 & 0xfff7) | param`, i.e. it sets or
+/// clears OPM while leaving the other bits untouched.
+pub fn one_pulse(tim: u32, on: bool) {
+    mmio::rmw16(tim + TIM_CR1, |v| if on { v | 0x08 } else { v & !0x08 });
+}
 
 /// `FUN_0800AFA0` - start the counter.
 pub fn start(tim: u32) {

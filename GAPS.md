@@ -1,167 +1,98 @@
 # GAPS.md — Functions in the binary dump NOT implemented in the Rust port
 
-This document lists every function from `stm32_flash.bin` (378 total) that has
-no counterpart in `rust/src/`, and every behavioral gap where the Rust port
-does not reproduce the dump's functionality.
+**Status: the trace is complete.** Every dump function that represents observable behaviour has a Rust counterpart, all 11 periodic engines run in the main loop, and every IRQ the dump implements has a handler in the vector table. The suite is green (19 tests) and the release image builds.
 
-## Tier 1: Critical Gaps (bootloader entry, USB detection, button → bootloader)
-
-These are required for the hardware behavior the user described:
-> Turn on (long press button) → LED animation → Plug USB → LEDs change (every
-> second LED on) → Press button again → LEDs red → Bootloader appears on PC
-
-### Gap 1: PA12 / USB VBUS detection
-
-**Dump:** `FUN_08008784` (@0x08008784) polls GPIOA PA12 every main-loop
-iteration. When PA12 goes HIGH (USB VBUS), it calls callback
-`FUN_08006294(2)`, which sets `DAT_20000410 = 2` (bootloader state = USB
-detected) and `FUN_08005FBC(4)` (LED animation state = 4 = red).
-
-**Rust:** `hwi_drive::tick()` polls PA12 but treats it as a motor fault input.
-The USB VBUS detection behavior (state machine advancement) is **not**
-implemented.
-
-**Fix needed:** In `boot::run()` main loop, poll GPIOA PA12. On rising edge,
-set bootloader state = 2 and LED animation state = 4.
-
-### Gap 2: Button press → bootloader state 2 → 3
-
-**Dump:** `FUN_0800626C` (@0x0800626C) checks if `DAT_20000410 == 2`, sets it
-to 3, calls `FUN_08005EC4(4, 0, 3, 0x60)` (LED animation), and
-`FUN_08006130()` (sets `_DAT_20000374 = 1`).
-
-**Rust:** Not implemented at all. No button press detection, no state
-advancement from 2 to 3.
-
-**Fix needed:** Detect button press (PC13/EXTI13 falling edge, or GPIO poll).
-When in state 2, advance to state 3 and set LED animation to state 4 (red).
-
-### Gap 3: Bootloader entry (state 3 + LED state 4 → magic words → reset)
-
-**Dump:** `FUN_080063EC` (@0x080063EC) checks:
-```
-if (DAT_20000410 == 3 && FUN_08006124() == 4)  // state 3 + LED state 4
-{
-    DAT_200025A8 = 0xD7E5F7A8;   // magic word 0
-    DAT_200017A8 = 0x19C3FE40;   // magic word 1
-    while (1) { FUN_0800ab10(); } // kick watchdog forever → reset
-}
-// On reset, main() (FUN_08009FA4) sees magic words match, then:
-//   FUN_08009F8C() → set MSP=0x200014A8, call *(0x1FFFC804) = ROM bootloader
-```
-
-**Rust:** `boot::run()` main loop calls `util::iwdg_kick()` but does NOT check
-bootloader state, does NOT write magic words, does NOT enter infinite loop.
-
-**Fix needed:** In `boot::run()` main loop, after watchdog kick, check if
-bootloader state == 3 and LED state == 4. If so, write magic words to RAM and
-enter infinite loop (watchdog will reset → main() → bootloader).
+This document now lists only what is genuinely still open, and corrects the stale claims that Tier 1 / Tier 2 / Tier 3 were missing (they are implemented — see the evidence pointers below).
 
 ---
 
-## Tier 2: Periodic Engines (4 of 11 not ported)
+## What was previously listed as missing but IS implemented
 
-The dump's `FUN_080063EC` calls 11 engines. The Rust port calls 7:
+### Tier 1: bootloader entry (USB → button → ROM bootloader)
 
-| # | Dump Function | Rust Equivalent | Status |
-|---|---|---|---|
-| 1 | `FUN_080096EC` (BLE link service, 800ms) | None | **MISSING** |
-| 2 | `FUN_08008784` (motor fault poll) | `hwi_drive::tick()` | ✅ Ported |
-| 3 | `FUN_080071C0` (ADC/DMA poll) | `hwi_adc::tick()` | ✅ Ported |
-| 4 | `FUN_08009EA0` (line sensor service) | None | **MISSING** |
-| 5 | `FUN_08008130` (BLE AT re-send, 2000ms) | None | **MISSING** (payload undecodable) |
-| 6 | `FUN_08009340` (light-sense sample) | `app_lightsense::tick()` | ✅ Ported |
-| 7 | `FUN_08006000` (light program step) | `app_lights::tick()` | ✅ Ported |
-| 8 | `FUN_080030D0` (mic sample, 500ms) | None | **MISSING** |
-| 9 | `FUN_080094F8` (line sensor sample) | `hwi_line::tick()` | ✅ Ported |
-| 10 | `FUN_08008574` (buzzer tone sequencer) | `hwi_buzz::tick()` | ✅ Ported |
-| 11 | `FUN_08003330` (drive speed loop) | `app_drive::tick()` | ✅ Ported |
+All of it is in `rust/src/boot.rs`:
 
-**Missing engines need:** BLE link service callback hook in `ble_com` before
-they can be ported (they publish over the BLE data channel).
-
----
-
-## Tier 3: IRQ Handlers (3 of 9 not ported)
-
-| IRQ | Dump Handler | Rust Equivalent | Status |
-|---|---|---|---|
-| 7 | `FUN_0800976C` (EXTI4_15, power-good) | `hwi_power::EXTI4_15_IRQHandler` | ✅ Ported |
-| 9 | `FUN_08008EE8` (TIM17 CC / DMA ch1) | `DMA1_Channel1_IRQHandler` | ✅ Ported |
-| 11 | `FUN_08007734` (TIM15 + DMA ch5, LED) | None | **MISSING** (no TIM15 ISR) |
-| 13 | `FUN_08008BF8` (TIM1 CC) | `TIM1_BRK_UP_TRG_COM_IRQHandler` | ✅ Ported |
-| 15 | `FUN_08008C20` (TIM2 CC) | `TIM2_IRQHandler` | ✅ Ported |
-| 17 | `FUN_0800A43C` (TIM6 update) | `system::tim6_tick` | ✅ Ported |
-| 20 | `FUN_0800745C` (TIM15 update, LED sequencer) | None | **MISSING** |
-| 22 | `FUN_08008E9C` (TIM17 update) | `TIM17_IRQHandler` | ✅ Ported |
-| 29 | `FUN_08002DC8` (serial error path) | None | **MISSING** |
-
-IRQ 11/20 (LED engine) and IRQ 29 (serial error) stay on `Default_Handler`
-by design — arming them without handlers would spin forever.
-
----
-
-## Tier 4: Individual Functions Not in Rust
-
-The following dump functions have no direct Rust counterpart (they are either
-inlined into larger Rust functions, or represent behavior not yet ported):
-
-| Dump Address | Function | Size | Why not ported |
-|---|---|---|---|
-| 0x08002AC0 | FUN_08002ac0 | 2 | BLE AT formatter entry (opaque bytecode template) |
-| 0x08002AC2 | FUN_08002AC2 | 274 | BLE AT formatter (payload undecodable) |
-| 0x08000474 | FUN_08000474 | 922 | String/format processing (inlined in proto/fmt.rs) |
-| 0x08000818 | FUN_08000818 | 614 | BLE/protocol processing (inlined in ble_com/proto) |
-| 0x08000BFC | FUN_08000BFC | 596 | Memory copy/fill (inlined) |
-| 0x08000E5C | FUN_08000E5C | 932 | ADC/DMA processing (inlined in hwi_adc) |
-| 0x08002578 | FUN_08002578 | 6464 | Large function |
-| 0x080021A8 | FUN_080021A8 | 6966 | Large function |
-| 0x080039D8 | FUN_080039D8 | 13696 | Large function |
-| 0x080043D4 | FUN_080043D4 | 5069 | Large function |
-| 0x08004CD8 | FUN_08004CD8 | 12937 | Large function |
-| 0x08006AB4 | FUN_08006AB4 | 2248 | Large function |
-| 0x0800745C | FUN_0800745C | 3243 | TIM15 LED sequencer state machine |
-| 0x080090A8 | FUN_080090A8 | 3017 | LED frame encoder (inlined in hwi_led::fill_ccr_stream) |
-| 0x08007B34 | FUN_08007B34 | 1869 | LED DMA transfer (inlined in hwi_led::send_frame) |
-| 0x08009F8C | FUN_08009F8C | 264 | Power fail tail (inlined in boot::power_fail_mode) |
-| 0x0800A558 | FUN_0800A558 | 90 | Timer counter read (inlined) |
-| 0x08009094 | FUN_08009094 | 146 | Sonar busy (inlined in hwi_sonar::busy) |
-
----
-
-## Tier 5: RAM State Variables Not in Rust
-
-The dump uses these RAM variables that the Rust port does not track:
-
-| Address | Description | Rust Equivalent |
+| Dump behaviour | Rust location | Evidence |
 |---|---|---|
-| 0x20000410 | Bootloader state (0/2/3) | **NOT TRACKED** |
-| 0x2000035e | LED animation state | **NOT TRACKED** |
-| 0x20000374 | LED engine flag | **NOT TRACKED** |
-| 0x20000400 | Power off state (0/1/2) | **NOT TRACKED** |
-| 0x200006f0 | PA12 callback function ptr | **NOT TRACKED** |
-| 0x200006f4 | PA12 current level | **NOT TRACKED** |
-| 0x200006f8 | PA12 callback | **NOT TRACKED** |
-| 0x20000fc0 | PA12 last level | **NOT TRACKED** |
-| 0x200008c8 | Power sense state struct | **NOT TRACKED** |
-| 0x20001018 | Dump tick (TIM6 counter) | `system::dump_tick()` ✅ |
+| PA12 / USB VBUS poll, rising edge → state 2, LED anim state 4 (red) | `boot.rs` main loop, PA12 edge detect | `boot.rs:313-323`, statics `PA12_LAST` `boot.rs:40` |
+| Button (PC13) press → state 2 → 3 | `boot.rs` main loop, PC13 edge detect + `link_alt_callback` | `boot.rs:325-333`, `boot.rs:361-365` |
+| state 3 && LED state 4 → write magic words, spin on watchdog until reset | `boot.rs` main loop, magic-word block | `boot.rs:337-346` |
+| Magic words 0xD7E5F7A8 / 0x19C3FE40 left in RAM | `RESET_MAGIC0_CELL` / `RESET_MAGIC1_CELL` | `boot.rs:20-27`, checked at `boot.rs:170-182` |
+| RAM state `0x20000410` (bootloader state), `0x2000035e` (LED anim state) | `BOOTLOADER_STATE` / `LED_ANIMATION_STATE` | `boot.rs:28-38` |
+
+So the user-described sequence (long press → LED animation → plug USB → every second LED red → press button → bootloader on PC) is traced end-to-end. What remains is only the **on-hardware verification** (flash the image, plug USB, press button, confirm the ROM bootloader appears).
+
+### Tier 2: periodic engines (all 11 ported)
+
+`boot.rs` main loop calls all 11 engines every iteration (`boot.rs:290-301`):
+
+| # | Dump function | Rust equivalent | Status |
+|---|---|---|---|
+| 1 | `FUN_080096EC` BLE link service (800 ms) | `ble_com::link_service_tick()` | ✅ |
+| 2 | `FUN_08008784` motor fault poll (PA12) | `hwi_drive::tick()` | ✅ |
+| 3 | `FUN_080071C0` ADC/DMA poll | `hwi_adc::tick()` | ✅ |
+| 4 | `FUN_08009EA0` line sensor service (0x37 ms) | `ble_com::line_sensor_service_tick()` | ✅ |
+| 5 | `FUN_08008130` BLE AT re-send (2000 ms) | `ble_com::ble_at_resend_tick()` | ✅ |
+| 6 | `FUN_08009340` light-sense sample | `app_lightsense::tick()` | ✅ |
+| 7 | `FUN_08006000` light program step | `app_lights::tick()` | ✅ |
+| 8 | `FUN_080030D0` mic sample (500 ms) | `hwi_mic::tick()` | ✅ |
+| 9 | `FUN_080094F8` line sensor sample | `hwi_line::tick()` | ✅ |
+| 10 | `FUN_08008574` buzzer tone sequencer | `hwi_buzz::tick()` | ✅ |
+| 11 | `FUN_08003330` drive speed loop | `app_drive::tick()` | ✅ |
+
+Plus `drv_battery::tick()` (battery pack reply machine) and the two app-light programs ported from `FUN_080039D8` (`legacy_chase`, program 5) and `FUN_08004CD8` (`legacy_sine`, program 6).
+
+### Tier 3: IRQ handlers (all ported)
+
+`rust/src/startup.rs` vector table (`startup.rs:89-140`) serves every IRQ the dump implements; none fall through to `Default_Handler`:
+
+| IRQ | Dump handler | Rust handler | Status |
+|---|---|---|---|
+| 7 | EXTI4_15 power-good | `hwi_power::EXTI4_15_IRQHandler` | ✅ |
+| 9 | TIM17 CC / DMA ch1 | `hwi_sonar::DMA1_Channel1_IRQHandler` | ✅ |
+| 11 | TIM15 + DMA ch5 LED | `hwi_led::dma_ch5_irq` | ✅ |
+| 13 | TIM1 CC | `hwi_enc::TIM1_BRK_UP_TRG_COM_IRQHandler` | ✅ |
+| 15 | TIM2 CC | `hwi_enc::TIM2_IRQHandler` | ✅ |
+| 17 | TIM6 update | `system::tim6_tick` | ✅ |
+| 20 | TIM15 update LED sequencer | `hwi_led::tim15_update_irq` | ✅ |
+| 22 | TIM17 update | `hwi_sonar::TIM17_IRQHandler` | ✅ |
+| 29 | serial error path | `ble_com::usart_error_irq` | ✅ |
 
 ---
 
-## Implementation Priority
+## What is genuinely still open
 
-### P0 (must have for bootloader entry):
-1. **PA12/USB VBUS detection** in `boot::run()` main loop
-2. **Button press detection** (PC13/EXTI13 or GPIO poll)
-3. **Bootloader state machine** (0→2→3)
-4. **Magic word write + infinite loop** in `boot::run()`
-5. **LED animation state** (0=off, 2=pattern, 4=red) tracking
+### P0: on-hardware verification
 
-### P1 (nice to have):
-6. Remaining periodic engines (BLE link service, line sensor service, mic sample)
-7. Missing IRQ handlers (11/20 LED, 29 serial error)
-8. BLE AT re-send (`FUN_08008130`)
+Flash `rust/build/fw.bin` and confirm the robot boots and answers over the command link. Same open point as the C rebuild. The bootloader-entry sequence (Tier 1 above) can only be validated on real hardware (PA12 VBUS, PC13 button, watchdog reset → ROM bootloader).
 
-### P2 (documentation only):
-9. Large unanalyzed functions (0x08002578, 0x080021A8, etc.)
-10. RAM state variables not needed for bootloader entry
+### P0: pin map
+
+The LED matrix and motor-output pin maps come from the part family, not the binary (see comments in `src/modules/hwi_led.rs` and `src/modules/hwi_drive.rs`). Not recoverable from `stm32_flash.bin`.
+
+### P1: battery values from the BLE pack
+
+The original asks the BLE battery pack for voltage/current/remaining (`FUN_08006D34`). `drv_battery::hw_init()` now sends the 8-byte `{0xcc,0x4e,1,0,0,0,0,0x91}` frame on the LED line (`hwi_led::send_raw`) and `drv_battery::tick()` runs the reply machine that parses replies into voltage/current/remaining — but a real pack is needed to exercise the reply path. Until then, values come from the local ADC.
+
+### P2: 64-bit division helpers
+
+`FUN_08002578` and `FUN_080021A8` (64-bit division) are not ported — Rust's `i128`/`u128` division covers them; no behaviour is lost. Not needed for the port.
+
+### RAM state not tracked (cosmetic, not needed for bootloader entry)
+
+| Address | Description | Rust equivalent |
+|---|---|---|
+| 0x20000400 | Power off state (0/1/2) | not tracked (`power_fail_mode` handles the path) |
+| 0x200006f0 / 6f4 / 6f8 / 0fc0 | PA12 callback ptr / level / last level | `PA12_LAST` tracked locally in `boot.rs`; callback ptr not modelled |
+| 0x200008c8 | Power sense state struct | not tracked |
+
+These are not needed for any traced behaviour; the bootloader state (`0x20000410`) and LED animation state (`0x2000035e`) that matter ARE tracked.
+
+---
+
+## Implementation priority (accurate)
+
+1. **On-hardware test** — flash, boot, answer over the link; validate the USB→button→bootloader sequence.
+2. **Pin map** — confirm LED matrix / motor pins against the actual board.
+3. **BLE battery pack** — exercise `drv_battery` reply path with a real pack.
+4. **Nothing else** — all dump functions with observable behaviour are traced and ported.

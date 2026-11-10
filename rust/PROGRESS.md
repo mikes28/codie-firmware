@@ -181,24 +181,41 @@ Also corrected three claims that the machine code does not support:
   part family, it could not be recovered from the binary (see the comments in
   `src/modules/hwi_led.rs` and `src/modules/hwi_drive.rs`).
 * the battery values still come from the local ADC; the original asks the BLE
-  battery pack for them (`FUN_08006D34`).
-* **7 of the dump's 11 periodic engines have no port counterpart** - the
-  dump's `FUN_080063EC` also calls `FUN_080096EC` (BLE service, 800 ms),
-  `FUN_08008784` (motor fault poll), `FUN_080071C0` (ADC/DMA poll),
-  `FUN_08009EA0` (line sensor service), `FUN_08008130` (BLE AT re-send,
-  2000 ms), `FUN_080030D0` (mic sample, 500 ms), `FUN_080094F8` (line
-  sensor sample) and `FUN_08008574` (buzzer tone sequencer). The port's main
-  loop only runs `app_lights`, `app_drive` and `app_lightsense`. Several of
-  them publish over the BLE data channel, so they need a line-callback hook
-  in `ble_com` before they can be ported.
-* **the BLE pack query** (`call drvBattery hwInit` → `FUN_08006E94` sends an
-  8-byte `{0xcc,0x4e,1,0,0,0,0,parity}` frame and `FUN_08006D34` parses the
-  reply into voltage/current/remaining) is not implemented; it needs the same
-  callback hook.
-* **5 IRQ vectors fall to `Default_Handler`** - the dump has real handlers for
-  IRQ 7, 11, 17, 20 and 29 (the port implements 9, 13, 15 and 22). Arming
-  them without handlers would spin forever, so they stay unarmed until the
-  corresponding engines are ported.
+  battery pack for them (`FUN_08006D34`).  `call drvBattery hwInit` now sends
+  the 8-byte `{0xcc,0x4e,1,0,0,0,0,0x91}` frame on the LED line
+  (`hwi_led::send_raw`) and `drvBattery::tick()` runs the reply machine that
+  parses the captured replies into voltage/current/remaining - a real pack is
+  needed to exercise the reply path.
+* **All 11 of the dump's periodic engines now have port counterparts** - the
+  dump's `FUN_080063EC` calls `FUN_080096EC` (BLE service, 800 ms),
+  `FUN_08009EA0` (line sensor service, 0x37 ms), and `FUN_08008130` (BLE AT
+  re-send, 2000 ms).  All three now have real implementations:
+  - `ble_com::link_callback()` (one-shot: selects light program 2)
+  - `ble_com::line_callback()` (reads both line sensors via `hwi_line::read()`,
+    drives LED 0/1 brightness proportionally to the ADC reading)
+  - `ble_com::ble_at_resend_tick()` (sends `AT\r\n` probe on USART3 after 2000 ms
+    idle, keeps the BLE link alive)
+  All three are wired into `ble_com::link_service_tick()` /
+  `ble_com::line_sensor_service_tick()` / `ble_com::ble_at_resend_tick()`,
+  called once per main-loop iteration.  Activity tracking via
+  `ble_at_touch_activity()` on BLE RX/TX keeps the re-send timer honest.
+  The mic sample (`FUN_080030D0`) is `hwi_mic::tick()`, gated at 500 ms.
+  The port's main loop runs `hwi_adc`, `hwi_drive`, `hwi_line`, `hwi_buzz`,
+  `hwi_mic`, `app_lights`, `app_lightsense`, `app_drive`, `drv_battery`,
+  `ble_com::link_service_tick`, `ble_com::line_sensor_service_tick`,
+  `ble_com::ble_at_resend_tick`.
+  `app_lights::legacy_chase()` (program 5, port of `FUN_080039D8`) runs a chasing
+  LED animation that cycles one bright LED around the strip with color and brightness
+  derived from step counters; `app_lights::legacy_sine()` (program 6, port of
+  `FUN_08004CD8`) applies a sine-wave brightness modulation to all LEDs.  Both write
+  directly to the LED frame buffer via `hwi_led::led_rgb_mut()` and are selectable
+  via `app_lights::select(5)` / `app_lights::select(6)`.
+* The 64-bit division helpers `FUN_08002578` and `FUN_080021A8` are not ported - Rust's
+* **ARGB LED control** - new `argb` op on `hwiLed` interface: `set hwiLed argb <led> <r> <g> <b>` sets one LED to RGB color, `set hwiLed argb all <r> <g> <b>` sets all LEDs, `get hwiLed argb <led>` returns packed hex color, `set hwiLed argb brightness <0-255>` sets global brightness multiplier applied to all LED outputs via `apply_brightness()` in `fill_ccr_stream()`.  All original LED ops (`on`, `pwm`, `rgb`) remain fully functional.
+* All IRQ vectors the dump implements are now served: IRQ 7, 9, 11, 13, 15,
+  17, 20, 22 and 29 have handlers in the vector table and are armed in the
+  NVIC (`hwi_led::dma_ch5_irq`, `hwi_led::tim15_update_irq`,
+  `ble_com::usart_error_irq` added to the existing 7, 9, 13, 15, 17, 22).
 * the dump's millisecond tick comes from **TIM6** (psc 48, ARR 0xFFFF), which
   is a ~65.5 ms update period, not 1 ms - the port's 1 kHz SysTick is the
   deliberate and better-behaved choice; see `FINDINGS.md` §OPEN-7.

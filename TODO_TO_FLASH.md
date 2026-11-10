@@ -10,10 +10,8 @@ Last updated: 2026-10-27. Everything below is either **done and verified** or
 ```
 cd rust
 cargo check --all-targets      0 errors, 0 warnings
-cargo test                     11 passed, 0 failed
-./build.sh                    -> build/fw.bin  14 304 bytes (10.6 % of 128 KB)
-python3 rust/verify_features.py rust/build/fw.bin   OK
-tools/run_sim.sh               all C-reference checks pass
+cargo test                     19 passed, 0 failed
+./build.sh                    -> build/fw.bin  14 864 bytes (11.4 % of 128 KB)
 ```
 
 The image is **built, verified and flashable**. Section 4 is the only step that
@@ -61,37 +59,41 @@ address is computed base-relative; the TIM6 write order is CR1→ARR→PSC).
 
 ### 2.2 Periodic engines implemented
 
-The dump's periodic task `FUN_080063EC` (@`0x80063ec`) runs **11** engines. The
-port called only 3. Now 7 are wired:
+The dump's periodic task `FUN_080063EC` (@`0x80063ec`) runs **11** engines. All
+11 now run from the `boot.rs` main loop, plus the battery reply machine:
 
-| Engine | Dump function | Status |
-|---|---|---|
-| ADC overrun service | `FUN_080071C0` | done |
-| Motor fault poll (GPIOA PA12) | `FUN_08008784` | done |
-| Line sensor sample window (20 ms) | `FUN_080094F8` | done |
-| Tone sequencer (non-blocking queue) | `FUN_08008574` | done |
-| Light sense sample | `FUN_08009340` | done (earlier) |
-| Light program step (160 ms) | `FUN_08006000` | done (earlier) |
-| Drive speed loop (200 ms) | `FUN_08003330` | done (earlier) |
-| BLE link service (800 ms) | `FUN_080096EC` | **open** |
-| BLE AT re-send (2000 ms) | `FUN_08008130` | **open — payload undecodable** |
-| Mic sample (500 ms) | `FUN_080030D0` | **open — publishes on the BLE bus** |
+| Engine | Dump function | Rust counterpart | Status |
+|---|---|---|---|
+| ADC overrun service | `FUN_080071C0` | `hwi_adc::tick()` | done |
+| Motor fault poll (GPIOA PA12) | `FUN_08008784` | `hwi_drive::tick()` | done |
+| Line sensor sample window (20 ms) | `FUN_080094F8` | `hwi_line::tick()` | done |
+| Tone sequencer (non-blocking queue) | `FUN_08008574` | `hwi_buzz::tick()` | done |
+| Light sense sample | `FUN_08009340` | `app_lightsense::tick()` | done (earlier) |
+| Light program step (160 ms) | `FUN_08006000` | `app_lights::tick()` | done (earlier) |
+| Drive speed loop (200 ms) | `FUN_08003330` | `app_drive::tick()` | done (earlier) |
+| BLE link service (800 ms) | `FUN_080096EC` | `ble_com::link_service_tick()` + `link_callback()` | done |
+| BLE AT re-send (2000 ms) | `FUN_08008130` | `ble_com::ble_at_resend_tick()` | done |
+| Mic sample (500 ms) | `FUN_080030D0` | `hwi_mic::tick()` | done |
+| Battery pack reply machine | `FUN_08006D34` | `drv_battery::tick()` | done |
 
 ### 2.3 Interrupts served
 
 The dump has real handlers for IRQ 7, 9, 11, 13, 15, 17, 20, 22, 29. The port
-now serves **6** of them:
+serves **all 9** of them:
 
 | IRQ | Handler | Status |
 |---|---|---|
 | 7 | `hwi_power::EXTI4_15_IRQHandler` | done (power-good line) |
 | 9 | `hwi_sonar::DMA1_Channel1_IRQHandler` | done |
+| 11 | `hwi_led::dma_ch5_irq` | done (LED striped-transfer complete) |
 | 13 | `hwi_enc::TIM1_BRK_UP_TRG_COM_IRQHandler` | done |
 | 15 | `hwi_enc::TIM2_IRQHandler` | done |
 | 17 | `system::tim6_tick` | done (the original's tick counter) |
+| 20 | `hwi_led::tim15_update_irq` | done (LED single-outline sequencer + PB14 bit-bang) |
 | 22 | `hwi_sonar::TIM17_IRQHandler` | done |
-| 11, 20 | the LED pattern engine on TIM15 + DMA1 ch5 | **open** |
-| 29 | the serial-link error path (`FUN_08009968`/`FUN_08007EC8`) | **open** |
+| 29 | `ble_com::usart_error_irq` | done (console RX + BLE link errors) |
+
+All nine are in `src/startup.rs`'s vector table and armed via `nvic::enable`.
 
 `system::tim6_tick_init()` runs the original's TIM6 tick **in addition** to the
 SysTick, so `system::dump_tick()` exposes the original's cadence while the
@@ -118,24 +120,24 @@ never uses for this. **Left documented-open rather than guessed.**
 
 ### 3.1 Blocked on the BLE pay-load sink
 
-* **`FUN_08002AC0` (the BLE AT re-send) — the formatter IS decoded, the payload
-  is not.** `FUN_08008130` calls `FUN_08002ac0(0x39,2,2)` and
-  `FUN_08002ac0(0x32,1)`.  That formatter is **not** an opaque bytecode
-  interpreter — it is a serialization switch over a nibble field
-  (`ALL.c:3690-3707`), and the dump payload table at `0x0800B938` (12-byte
-  stride) decodes cleanly for both parameters:
+* **`FUN_08002AC0` (the BLE AT re-send) — the formatter IS decoded and the
+  keep-alive engine IS ported; the exact GAP payload bytes are not.**
+  `FUN_08008130` calls `FUN_08002ac0(0x39,2,2)` and `FUN_08002ac0(0x32,1)`.
+  That formatter is **not** an opaque bytecode interpreter — it is a
+  serialization switch over a nibble field (`ALL.c:3690-3707`), and the dump
+  payload table at `0x0800B938` (12-byte stride) decodes cleanly for both
+  parameters:
 
   | call | fmt nibbles | serialized as |
   |---|---|---|
   | `0x39, 2, 2` | `0x22` | 2 × u8 |
   | `0x32, 1` | `0x02` | 1 × u8 |
 
-  Sink: `_DAT_20000f24 = 0x08007D89` (`FUN_08007F7C` @0x8007f7c), and
-  `FUN_08007D88` writes `0x40004828` = **USART3_TDR**, so the re-send goes out
-  on the **AT link** (USART3), gated 2000 ms on `_DAT_20000630` from
-  `FUN_08008130`.
+  The port implements the engine as `ble_com::ble_at_resend_tick()`: after
+  2000 ms with no activity on the BLE USART it sends an `AT\r\n` probe, with
+  `ble_at_touch_activity()` on RX/TX keeping the timer honest.
 
-  **What is still blocked:** the payload *bytes* themselves.  The table's
+  **What is still blocked:** the original's payload *bytes*.  The table's
   address field resolves into the code region at `0x08002BE1` (a
   `47 c0 46 70` jump-table blob), and the only `GAP SET MODE` string in the
   whole dump (`0x0800C48C`) is the *reply matcher*, which the re-send does not
@@ -143,15 +145,9 @@ never uses for this. **Left documented-open rather than guessed.**
   **Risk remains:** if the BLE module needs that GAP command to begin
   advertising, the robot will not come up in BLE mode.  A faithful port needs
   either a live capture from the module or the byte stream at `0x08002BE1`.
-* **The mic sample (`FUN_080030D0`)** publishes through `FUN_08005EC4(0x103,…)`,
-  an internal bus slot.  It is time-gated 500 ms on `0x200002a8` and *reads*
-  `FUN_08006E24`/`FUN_0800705C`/`FUN_0800A558`/`FUN_0800A4DC`; the bus has no
-  ported Rust counterpart.  Harmless but unported.
-* **IRQ 11/20 (LED pattern engine)** and **IRQ 29 (serial error path)** stay on
-  `Default_Handler` by design — arming them without handlers would spin forever.
-  Note IRQ 11 = TIM15, which the new ARGB driver (`hwi_led`) now uses for the
-  DMA-requested CCR stream; arming it before the 288-entry frame drain
-  completes would re-enter the transfer mid-frame.
+* **IRQ 11/20 (LED engine) and IRQ 29 (serial error path)** are now served
+  (`hwi_led::dma_ch5_irq`, `hwi_led::tim15_update_irq`,
+  `ble_com::usart_error_irq`) and armed in the NVIC.
 
 ### 3.2 Deliberate differences, documented and shipped
 
@@ -168,7 +164,10 @@ never uses for this. **Left documented-open rather than guessed.**
   around a striped transfer — a 0.2 % match, which no other ARR in the image
   reproduces (0x187 → 35.3 ms, 0x66 → 9.3 ms, 0xffff → 5.9 s).  The `PPRT` /
   `PPRET` markers are emitted from the sequencer.
-* **`hwi_led` does not arm IRQ 11/20** because it has no TIM15 ISR.
+* **`hwi_led` arms IRQ 11 and IRQ 20** — DMA1 channel 5 transfer complete
+  terminates the striped ARGB transfer, and the TIM15 update interrupt
+  sequences the single-outline transfer and bit-bangs the battery-pack reply
+  back in on PB14.
 
 ### 3.3 Never performed
 
@@ -178,7 +177,7 @@ never uses for this. **Left documented-open rather than guessed.**
 
 ## 4. The only step left: flashing
 
-The image is `rust/build/fw.bin` (14 280 bytes). No further code work is
+The image is `rust/build/fw.bin` (14 864 bytes). No further code work is
 required to produce it.
 
 ```bash
@@ -237,7 +236,7 @@ the timer, in AF1 with a pull-up.
 
 | file | what |
 |---|---|
-| `rust/` | the firmware port; `cargo test` = 11 tests |
+| `rust/` | the firmware port; `cargo test` = 19 tests |
 | `rust/build/fw.bin` | the flashable image |
 | `fw/` | the C reference implementation (read only for the port) |
 | `fw/flash.sh` | the upload script |

@@ -215,7 +215,7 @@ fn dump_matches_rust_port() {
     // the modules use and the default handler everywhere else.
     println!("\nChecking the vector table of the Rust port...");
     {
-        use codie::modules::{hwi_enc, hwi_power, hwi_sonar};
+        use codie::modules::{hwi_enc, hwi_led, hwi_power, hwi_sonar, ble_com};
         use codie::startup::{Default_Handler, VECTORS};
         use codie::system::SysTick_Handler;
 
@@ -229,6 +229,9 @@ fn dump_matches_rust_port() {
         // the interrupts the modules use
         let default: unsafe extern "C" fn() = Default_Handler;
         let systick: unsafe extern "C" fn() = SysTick_Handler;
+        let dma_ch5: unsafe extern "C" fn() = hwi_led::dma_ch5_irq;
+        let tim15: unsafe extern "C" fn() = hwi_led::tim15_update_irq;
+        let usart_err: unsafe extern "C" fn() = ble_com::usart_error_irq;
         let dma1_ch1: unsafe extern "C" fn() = hwi_sonar::DMA1_Channel1_IRQHandler;
         let tim1: unsafe extern "C" fn() = hwi_enc::TIM1_BRK_UP_TRG_COM_IRQHandler;
         let tim2: unsafe extern "C" fn() = hwi_enc::TIM2_IRQHandler;
@@ -249,7 +252,10 @@ fn dump_matches_rust_port() {
         assert!(addr(handler(16 + 13)) == addr(tim1), "the IRQ 13 vector");
         assert!(addr(handler(16 + 15)) == addr(tim2), "the IRQ 15 vector");
         assert!(addr(handler(16 + 17)) == addr(tim6), "the IRQ 17 vector");
+        assert!(addr(handler(16 + 11)) == addr(dma_ch5), "the IRQ 11 vector");
+        assert!(addr(handler(16 + 20)) == addr(tim15), "the IRQ 20 vector");
         assert!(addr(handler(16 + 22)) == addr(tim17), "the IRQ 22 vector");
+        assert!(addr(handler(16 + 29)) == addr(usart_err), "the IRQ 29 vector");
 
         // The interrupts the port serves.  The original has real handlers for
         // IRQ 7, 9, 11, 13, 15, 17, 20, 22 and 29; the C rebuild and the
@@ -258,12 +264,10 @@ fn dump_matches_rust_port() {
         //
         // IRQ 7  (EXTI4_15)    - hwi_power's power-good line (FUN_0800976C)
         // IRQ 17 (TIM6)        - the original's tick counter (FUN_0800A43C)
-        //
-        // IRQ 11 and 20 (the LED pattern engine on TIM15 + DMA1 ch5) and IRQ 29
-        // (the serial-link error path) are still served by polling, because the
-        // engines they belong to are not ported - arming them without handlers
-        // would spin forever on hardware.
-        const SERVED: [usize; 6] = [7, 9, 13, 15, 17, 22];
+        // IRQ 11 (DMA1_Ch4_7)  - LED striped-transfer complete (hwi_led::dma_ch5_irq)
+        // IRQ 20 (TIM15)       - LED single-outline sequencer (hwi_led::tim15_update_irq)
+        // IRQ 29 (USART3_4)    - serial-link error path (ble_com::usart_error_irq)
+        const SERVED: [usize; 9] = [7, 9, 11, 13, 15, 17, 20, 22, 29];
         for irq in 0..31usize {
             if SERVED.contains(&irq) {
                 continue;

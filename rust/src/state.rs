@@ -5,7 +5,6 @@
 //! single thread (the main loop) and the interrupts touch their own state
 //! only, so the usual `static mut` rules are relaxed with one `unsafe impl
 //! Sync` instead of scattering `unsafe` over the code.
-
 use core::cell::UnsafeCell;
 
 /// A global cell for the single threaded firmware.
@@ -24,8 +23,17 @@ impl<T> Global<T> {
     }
 
     /// The mutable content of the cell.
-    #[inline]
+    ///
+    /// Returns `&mut T` through `&self`.  This is sound in practice because
+    /// the firmware is single-threaded and no two `&mut` references to the
+    /// same cell are ever held simultaneously.  The `compiler_fence`
+    /// prevents the compiler from caching cell contents in registers across
+    /// calls, which would make state-machine phase changes (e.g. the TIM15
+    /// update interrupt parking the sequencer in phase 16) invisible to
+    /// readers that obtained their own `&mut` through a separate `get()`
+    /// call.
     pub fn get(&self) -> &mut T {
+        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
         unsafe { &mut *self.0.get() }
     }
 }

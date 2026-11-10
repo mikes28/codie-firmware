@@ -3,8 +3,26 @@
 //! This test needs the peripheral model to itself: it resets it and brings
 //! the link up from scratch, so it lives in its own file rather than next to
 //! a test that runs the firmware in a thread (that race cost a day).
+//!
+//! The three tests below also share one global firmware model (the
+//! `codie::sim` peripheral model and the `ble_com` module statics), so they
+//! run one at a time under `SERIAL` - the same reasoning as
+//! `tests/battery.rs`.  In particular the line-sensor dispatch keeps its flag
+//! bits set across calls, so a parallel test can leave it armed and make the
+//! "must not fire without the flag raised" check fail.
 
 use codie::hal::addr::{USART3, USART4};
+use std::sync::{Mutex, MutexGuard};
+
+/// Serializes the tests of this file: one global firmware model, one driver.
+static SERIAL: Mutex<()> = Mutex::new(());
+
+/// Run `f` while holding the file's lock.
+fn serial<F: FnOnce()>(f: F) {
+    let guard: MutexGuard<'_, ()> = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    f();
+    drop(guard);
+}
 
 /// The control registers the port writes into the two links.
 ///
@@ -21,6 +39,7 @@ use codie::hal::addr::{USART3, USART4};
 ///   USART4 (the command)  : CR2 = 0, CR3 = 0
 #[test]
 fn the_control_registers_enable_the_transmitter_and_the_receiver() {
+    serial(|| {
     codie::sim::reset();
     codie::modules::ble_com::init();
 
@@ -41,4 +60,90 @@ fn the_control_registers_enable_the_transmitter_and_the_receiver() {
     assert_eq!(codie::sim::read32(USART3 + 0x08) & 0xFFFF, 0x0300, "CR3 of the AT link");
     assert_eq!(codie::sim::read32(USART4 + 0x04) & 0xFFFF, 0x0000, "CR2 of the command link");
     assert_eq!(codie::sim::read32(USART4 + 0x08) & 0xFFFF, 0x0000, "CR3 of the command link");
+    });
+}
+
+// Callback dispatch for the BLE link / line sensor services (FUN_080096EC /
+// FUN_08009EA0).
+//
+// Verifies that `ble_com::link_service_tick` and
+// `ble_com::line_sensor_service_tick` fire their registered callbacks after
+// the dump's gates (800 ms and 55 ms).
+
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
+use codie::modules::ble_com;
+use codie::system;
+
+static LINK_FIRED: AtomicBool = AtomicBool::new(false);
+static LINE_ARG: AtomicU8 = AtomicU8::new(0);
+
+/// Advance the millisecond tick by `ms` (each SysTick_Handler is 1 ms).
+fn advance_ms(ms: u32) {
+    for _ in 0..ms {
+        system::SysTick_Handler();
+    }
+}
+
+#[test]
+fn link_service_tick_fires_after_800ms() {
+    serial(|| {
+    LINK_FIRED.store(false, Ordering::Relaxed);
+    ble_com::register_link_callback(|| {
+        LINK_FIRED.store(true, Ordering::Relaxed);
+    });
+
+    // Without raising the flag, the callback must not fire even after
+    // advancing time.
+    advance_ms(2000);
+    ble_com::link_service_tick();
+    assert!(
+        !LINK_FIRED.load(Ordering::Relaxed),
+        "link callback must not fire without the flag raised"
+    );
+
+    // With the flag raised and 800 ms elapsed, the callback fires.
+    ble_com::raise_link_flag();
+    advance_ms(801);
+    ble_com::link_service_tick();
+    assert!(
+        LINK_FIRED.load(Ordering::Relaxed),
+        "link callback must fire after flag raised and 800 ms elapsed"
+    );
+    });
+}
+
+#[test]
+fn line_sensor_service_tick_fires_start_then_done() {
+    serial(|| {
+    LINE_ARG.store(0, Ordering::Relaxed);
+    ble_com::register_line_callback(|arg| {
+        LINE_ARG.store(arg, Ordering::Relaxed);
+    });
+
+    // Without raising the flag, the callback must not fire.
+    advance_ms(2000);
+    ble_com::line_sensor_service_tick();
+    assert_eq!(
+        LINE_ARG.load(Ordering::Relaxed),
+        0,
+        "line callback must not fire without the flag raised"
+    );
+
+    // With the flag raised and 55 ms elapsed, cb(3) fires then cb(0).
+    ble_com::raise_line_flag();
+    advance_ms(56);
+    ble_com::line_sensor_service_tick();
+    assert_eq!(
+        LINE_ARG.load(Ordering::Relaxed),
+        3,
+        "start callback must fire with arg 3 after 55 ms"
+    );
+    ble_com::line_sensor_service_tick();
+    assert_eq!(
+        LINE_ARG.load(Ordering::Relaxed),
+        0,
+        "done callback must fire with arg 0"
+    );
+    });
 }

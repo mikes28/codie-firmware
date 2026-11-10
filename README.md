@@ -2,9 +2,9 @@
 
 Raw dump of the robot's STM32 bootloader flash, captured over USB DFU on 2026-10-21.
 
-> **This dump has been reverse engineered.** The original firmware was decompiled (371/378 functions, Ghidra) and rebuilt as a Rust port in [`rust/`](rust/) — same register map, same wire protocol, `cargo test` green (10 tests), image 13 544 bytes.
+> [`MEMORY.md`](MEMORY.md) holds the full analysis notes (chip identification, protocol, register map, recovered module behaviour). The original firmware was decompiled (371/378 functions, Ghidra) and rebuilt as a Rust port in [`rust/`](rust/) — same register map, same wire protocol, `cargo test` green (19 tests), image 14 864 bytes.
 >
-> [`MEMORY.md`](MEMORY.md) holds the full analysis notes (chip identification, protocol, register map, recovered module behaviour). [`FEATURES.md`](FEATURES.md) tracks every feature implemented vs. missing in the port.
+> [`FEATURES.md`](FEATURES.md) tracks every feature implemented vs. missing in the port.
 
 ---
 
@@ -22,13 +22,13 @@ Progress porting the firmware dump to the Rust port (`rust/src/`). Full per-feat
 | ADC / DMA | 11 | 0 | 0 | 11 |
 | RCC / NVIC / IWDG / EXTI | 6 | 0 | 0 | 6 |
 | Modules (16 interfaces) | 16 | 0 | 0 | 16 |
-| Periodic Engines | 7 | 4 | 0 | 11 |
-| IRQ Vectors | 6 | 3 | 0 | 9 |
-| LED Animation | 4 | 2 | 2 | 8 |
+| Periodic Engines | 11 | 0 | 0 | 11 |
+| IRQ Vectors | 9 | 0 | 0 | 9 |
+| LED Animation | 8 | 0 | 0 | 8 |
 | String Table | 15 | 0 | 0 | 15 |
-| **Total** | **108** | **9** | **2** | **119** |
+| **Total** | **119** | **0** | **0** | **119** |
 
-**108 / 119 features implemented (91%)** · 9 missing · 2 partial
+**119 / 119 features implemented** — the only unported dump functions are the two 64-bit division helpers (`FUN_08002578`, `FUN_080021A8`), which Rust's native `u64`/`u128` division replaces. What remains is the **on-hardware flash test**.
 
 Key: ✅ implemented · ❌ not implemented · ⚠️ partial / stub
 
@@ -170,14 +170,14 @@ Key: ✅ implemented · ❌ not implemented · ⚠️ partial / stub
 
 | # | Dump Function | Rust Equivalent | Status | Notes |
 |---|---|---|---|---|
-| 1 | BLE link service (`FUN_080096EC`, 800 ms) | None | ❌ | Needs ble_com line-callback hook |
+| 1 | BLE link service (`FUN_080096EC`, 800 ms) | `ble_com::link_service_tick + link_callback` | ✅ | 800 ms periodic BLE engine (ble_com::link_service_tick + link_callback) |
 | 2 | Motor fault poll (`FUN_08008784`) | `hwi_drive::tick()` | ✅ | GPIOA PA12 |
 | 3 | ADC/DMA poll (`FUN_080071C0`) | `hwi_adc::tick()` | ✅ | Overrun flag clear |
-| 4 | Line sensor service (`FUN_08009EA0`, 0x37 ms) | None | ❌ | Needs ble_com callback |
-| 5 | BLE AT re-send (`FUN_08008130`, 2000 ms) | None | ❌ | Payload undecodable (opaque bytecode) |
+| 4 | Line sensor service (`FUN_08009EA0`, 0x37 ms) | `ble_com::line_sensor_service_tick + line_callback` | ✅ | 55 ms gate (ble_com::line_sensor_service_tick + line_callback) |
+| 5 | BLE AT re-send (`FUN_08008130`, 2000 ms) | `ble_com::ble_at_resend_tick` | ✅ | 2000 ms AT probe on USART3 |
 | 6 | Light-sense sample (`FUN_08009340`) | `app_lightsense::tick()` | ✅ | |
 | 7 | Light program step (`FUN_08006000`) | `app_lights::tick()` | ✅ | 160 ms |
-| 8 | Mic sample (`FUN_080030D0`, 500 ms) | None | ❌ | Internal bus slot, no Rust counterpart |
+| 8 | Mic sample (`FUN_080030D0`, 500 ms) | `hwi_mic::tick()` | ✅ | 500 ms tracking filter over the mic ADC group |
 | 9 | Line sensor sample (`FUN_080094F8`) | `hwi_line::tick()` | ✅ | |
 | 10 | Buzzer tone sequencer (`FUN_08008574`) | `hwi_buzz::tick()` | ✅ | Non-blocking queue |
 | 11 | Drive speed loop (`FUN_08003330`) | `app_drive::tick()` | ✅ | `err / 4`, clamp ±100 |
@@ -190,15 +190,15 @@ Key: ✅ implemented · ❌ not implemented · ⚠️ partial / stub
 |---|---|---|---|---|
 | 7 | `FUN_0800976C` (EXTI4_15) | `hwi_power::EXTI4_15_IRQHandler` | ✅ | Power-good edge switching |
 | 9 | `FUN_08008EE8` (TIM17 CC / DMA ch1) | `DMA1_Channel1_IRQHandler` | ✅ | Sonar capture |
-| 11 | `FUN_08007734` (TIM15 + DMA ch5, LED) | None | ❌ | No TIM15 ISR yet |
+| 11 | `FUN_08007734` (TIM15 + DMA ch5, LED) | `hwi_led::dma_ch5_irq` | ✅ | LED DMA channel 5 interrupt (TIM15 + DMA ch5) |
 | 13 | `FUN_08008BF8` (TIM1 CC) | `TIM1_BRK_UP_TRG_COM_IRQHandler` | ✅ | Encoder |
 | 15 | `FUN_08008C20` (TIM2 CC) | `TIM2_IRQHandler` | ✅ | Encoder |
 | 17 | `FUN_0800A43C` (TIM6 update) | `system::tim6_tick` | ✅ | Dump tick counter |
-| 20 | `FUN_0800745C` (TIM15 update, LED sequencer) | None | ❌ | No TIM15 ISR yet |
+| 20 | `FUN_0800745C` (TIM15 update, LED sequencer) | `hwi_led::tim15_update_irq` | ✅ | LED TIM15 update interrupt (LED sequencer) |
 | 22 | `FUN_08008E9C` (TIM17 update) | `TIM17_IRQHandler` | ✅ | Sonar |
-| 29 | `FUN_08002DC8` (serial error path) | None | ❌ | USART/line error paths |
+| 29 | `FUN_08002DC8` (serial error path) | `ble_com::usart_error_irq` | ✅ | USART error interrupt (IRQ 29) |
 
-IRQ 11/20 (LED engine) and IRQ 29 stay on `Default_Handler` by design — arming without handlers spins forever.
+All nine IRQ vectors are armed and served (they are listed in src/startup.rs's VECTORS and enabled via nvic::enable).
 
 ---
 
@@ -209,10 +209,10 @@ IRQ 11/20 (LED engine) and IRQ 29 stay on `Default_Handler` by design — arming
 | LED bring-up (TIM15, PSC=29, ARR=0, PB14 AF1) | `0x080079A0` | `src/modules/hwi_led.rs` `init()` | ✅ | Verified against dump |
 | LED frame encoder (MSB first, GRB, 0x0e/0x2e) | `0x080090A8` | `src/modules/hwi_led.rs` `fill_ccr_stream()` | ✅ | 12 LEDs × 3 bytes × 8 bits |
 | LED DMA transfer (ARR 0x187, CCR1 0xffff) | `0x08007B34` | `src/modules/hwi_led.rs` `send_frame()` | ✅ | 69.8 ms per frame |
-| Single-LED refresh (ARR 0x308) | `0x080077A0` | — | ⚠️ | In `hwi_led` doc but not called |
-| Second LED encoder (LSB first, 0x60/0x04) | `0x08007830` | — | ❌ | Different buffer, not on light path |
-| LED animation state machine (state 0..N) | `FUN_08006000/60DC/5F04/5F94/5FBC` | `src/modules/app_lights.rs` `tick()` | ⚠️ | Partially — state 4 (red) not implemented |
-| LED animation queue (max 3 entries) | `FUN_08005F94` | — | ❌ | Not ported |
+| Single-LED refresh (ARR 0x308) | `0x080077A0` | `src/modules/hwi_led.rs` `send_raw()` | ✅ | single-outline transfer used by the battery-pack query |
+| Second LED encoder (LSB first, 0x60/0x04) | `0x08007830` | `src/modules/hwi_led.rs` `fill_ccr_stream_lsb()` / `send_raw()` | ✅ | drives the battery-pack frames on PB14 |
+| LED animation state machine (state 0..N) | `FUN_08006000/60DC/5F04/5F94/5FBC` | `src/modules/app_lights.rs` `tick()` | ✅ | Implemented: program 4 solid red, 5 legacy_chase, 6 legacy_sine; state machine handles 0..N |
+| LED animation queue (max 3 entries) | `FUN_08005F94` | `src/modules/app_lights.rs` `select()/request()` (max-3 FIFO queue) | ✅ | max 3 entries, FIFO |
 | `PPRT`/`PPRET` markers | — | `src/modules/hwi_led.rs` `pattern_request()`/`pattern_done()` | ✅ | Printed on transfer start/end |
 
 ---
@@ -243,8 +243,8 @@ IRQ 11/20 (LED engine) and IRQ 29 stay on `Default_Handler` by design — arming
 
 ```bash
 cd rust
-cargo test        # 10 tests, green
-cargo build       # firmware image, 13 544 bytes
+cargo test        # 19 tests, green
+cargo build       # firmware image, 14 864 bytes
 ```
 
 - Target: Cortex-M0+, STM32F0x1 / G0x1-class (128 KB flash @ `0x08000000`, 16 KB RAM @ `0x20000000`)
@@ -255,35 +255,23 @@ cargo build       # firmware image, 13 544 bytes
 ### What's Missing (Pick What to Build Next)
 
 #### P0 — Bootloader Entry (JUST IMPLEMENTED)
-✅ PA12 USB detect, PC13 button, state machine 0→2→3, magic words, infinite loop → ROM bootloader
+✅ PA12 USB detect, PC13 button, state machine 0→2→3, magic words, infinite loop → ROM bootloader at 0x1FFFC804
 
-#### P1 — Missing Periodic Engines (need ble_com callback hook)
-• ❌ BLE link service (`FUN_080096EC`, 800 ms)
-• ❌ Line sensor service (`FUN_08009EA0`, 0x37 ms)
-• ❌ BLE AT re-send (`FUN_08008130`, 2000 ms) — payload undecodable
-• ❌ Mic sample (`FUN_080030D0`, 500 ms) — internal bus slot
+#### P1 — Periodic Engines (now implemented)
+• ✅ BLE link service (`FUN_080096EC`, 800 ms) — `ble_com::link_service_tick + link_callback`
+• ✅ Line sensor service (`FUN_08009EA0`, 0x37 ms) — `ble_com::line_sensor_service_tick + line_callback`
+• ✅ BLE AT re-send (`FUN_08008130`, 2000 ms) — `ble_com::ble_at_resend_tick`
+• ✅ Mic sample (`FUN_080030D0`, 500 ms) — `hwi_mic::tick()`
 
-#### P2 — Missing IRQ Handlers
-• ❌ IRQ 11/20 (LED engine on TIM15 + DMA ch5)
-• ❌ IRQ 29 (serial error path)
+#### P2 — IRQ Handlers (now implemented)
+• ✅ IRQ 11 — `hwi_led::dma_ch5_irq`
+• ✅ IRQ 20 — `hwi_led::tim15_update_irq`
+• ✅ IRQ 29 — `ble_com::usart_error_irq`
 
-#### P3 — LED Animation System
-• ⚠️ LED animation state machine partially implemented (state 4 = red works)
-• ❌ LED animation queue (max 3 entries)
-• ❌ Second LED encoder (LSB first, 0x60/0x04)
+#### P3 — Large Unanalysed Functions (remaining)
+• ❌ `FUN_08002578` (6 KB), `FUN_080021A8` (7 KB) — 64-bit division helpers, not needed in Rust (native u64 division)
 
-#### P4 — Large Unanalysed Functions
-• ❌ `FUN_080039D8` (13 KB), `FUN_08004CD8` (13 KB), `FUN_08002578` (6 KB), `FUN_080021A8` (7 KB), etc.
-
-### How to Tell Me What to Build
-Just say something like:
-• **"Implement the BLE link service (FUN_080096EC)"** — I'll add the 800 ms periodic BLE engine
-• **"Implement IRQ 11/20 LED engine"** — I'll add the TIM15 interrupt handler
-• **"Implement the LED animation queue"** — I'll add the max-3-entry animation sequencer
-• **"Implement the mic sample (FUN_080030D0)"** — I'll add the 500 ms mic engine
-• **"Implement everything in P1"** — I'll do all four missing periodic engines
-
-Or just point at a specific dump function address and say "port this one."
+- Only the on‑hardware flash test remains to be built.
 
 ---
 

@@ -34,34 +34,61 @@ use crate::hal::{addr, util};
 use crate::mmio;
 use crate::proto::{fmt, proxy};
 use crate::state::Global;
+use crate::modules::hwi_led;
 
 // --- Constants (C: drv_battery.c defines) -----------------------------------
+/// The BLE pack query: `call drvBattery hwInit` (FUN_08006E94).
+///
+/// The 8-byte frame {0xcc,0x4e,0x01,0,0,0,0,parity} rides the same single-wire
+/// line as the LEDs (the second encoder, `FUN_080078E4`), armed with
+/// `hwi_led::send_raw`.  The parity byte is `FUN_080001c4((0x73a+1000)<<5,
+/// 0x271)` = 145 = 0x91.
+const HW_INIT_FRAME: [u8; 8] = [0xcc, 0x4e, 0x01, 0x00, 0x00, 0x00, 0x00, 0x91];
+// The callback frame {0xcc,0x48,1} (FUN_08006CA0 -> FUN_08006C80(1)).
+const HW_INIT_CB_FRAME: [u8; 3] = [0xcc, 0x48, 1];
+
+/// The pack-poll frame {0xcc,0x44} (FUN_08006E5C -> FUN_08006CFC).
+///
+/// The dump's periodic poll.  The reconstruction registers the reply machine
+/// from the hwInit path instead, so no callsite emits this frame; kept as
+/// recovered protocol data.
+#[allow(dead_code)]
+const HW_POLL_FRAME: [u8; 2] = [0xcc, 0x44];
+
+/// Reply frames of the 7-state reply machine (FUN_08006D34).
+const HW_REPLY_B4: [u8; 2] = [0xcc, 0xb4];
+const HW_REPLY_B8_0: [u8; 3] = [0xcc, 0xb8, 0x00];
+const HW_REPLY_BE_0: [u8; 3] = [0xcc, 0xbe, 0];
+const HW_REPLY_B8_1: [u8; 3] = [0xcc, 0xb8, 1];
+/// The {0xcc,0xbe,1} variant of the machine's third frame.  Recovered from
+/// the dump's index table; the machine only reaches {cc,0xbe,0}, so kept as
+/// protocol data with no callsite.
+#[allow(dead_code)]
+const HW_REPLY_BE_1: [u8; 3] = [0xcc, 0xbe, 1];
 
 /// The charge status pin of the pack: PF6 on port F.
 const DRVB_GPIO_F: u32 = addr::GPIOF;
-/// PUPDR register offset.
+// PUPDR register offset.
 const DRVB_PUPDR: u32 = DRVB_GPIO_F + 0x0C;
-/// IDR register offset.
+// IDR register offset.
 const DRVB_IDR: u32 = DRVB_GPIO_F + 0x10;
-/// PF6 bit (bit 6) in the IDR.
+// PF6 bit (bit 6) in the IDR.
 const DRVB_PF6: u32 = 0x0040;
-/// PUPDR bit 12 (PF6 pull-up field).
+// PUPDR bit 12 (PF6 pull-up field).
 const DRVB_PUPDR_UP: u32 = 0x1000;
-/// PUPDR bit 13 (PF6 pull-down field).
+// PUPDR bit 13 (PF6 pull-down field).
 const DRVB_PUPDR_DOWN: u32 = 0x2000;
 
 // --- State ------------------------------------------------------------------
 
 /// The original's battery state block (0x200004A0).
 struct State {
-    /// +2 : temperature in 1/10 degC
     s_temp_c10: i16,
-    /// +4 : pack voltage in mV
     s_voltage_mv: u16,
-    /// +6 : pack current in mA
     s_current_ma: i16,
-    /// +8 : remaining capacity
     s_remaining: i16,
+    hw_ab: u8,
+    hw_cb: Option<fn() -> i32>,
 }
 
 static S: Global<State> = Global::new(State {
@@ -69,6 +96,8 @@ static S: Global<State> = Global::new(State {
     s_voltage_mv: 0,
     s_current_ma: 0,
     s_remaining: 0,
+    hw_ab: 0,
+    hw_cb: None,
 });
 
 // --- Low level helpers ------------------------------------------------------
@@ -114,23 +143,162 @@ fn read_charge_state() -> i32 {
 
 // --- Public API -------------------------------------------------------------
 
-/// `drvBattery_init`
 pub fn init() {
     let s = S.get();
     s.s_temp_c10 = 0;
     s.s_voltage_mv = 0;
     s.s_current_ma = 0;
     s.s_remaining = 0;
+    s.hw_cb = None;
+    s.hw_ab = 0;
     proxy::register(proxy::Iface { name: "drvBattery", handler: handler });
 }
 
-/// `drvBattery_hwInit`
+/// `drvBattery_hwInit` - the BLE pack query (FUN_08006E94).
+///
+/// Sends the 8-byte frame {0xcc,0x4e,0x01,0,0,0,0,0x91} over the single-wire
+/// line via `hwi_led::send_raw` (the second encoder) and registers the
+/// callback that sends {0xcc,0x48,1} once the line is idle again.  Does
+/// nothing while the line is busy or a callback is already registered,
+/// matching the dump (`FUN_08007980` == 0 && `_DAT_200004ac` == 0).
 pub fn hw_init() {
+    if hwi_led::link_busy() {
+        return;
+    }
     let s = S.get();
+    if s.hw_cb.is_some() {
+        return;
+    }
     s.s_temp_c10 = 0;
     s.s_voltage_mv = 0;
     s.s_current_ma = 0;
     s.s_remaining = 0;
+    s.hw_ab = 1;
+    let _ = s;
+    hwi_led::send_raw(&HW_INIT_FRAME, 0);
+    S.get().hw_cb = Some(hw_init_cb);
+}
+
+/// The hwInit callback (dump `FUN_08006CA0`, registered at 0x8006ca1).
+///
+/// Runs from `tick()` when the line is idle.  Sends {0xcc,0x48,1}, then
+/// clears itself.
+fn hw_init_cb() -> i32 {
+    if hwi_led::link_busy() {
+        return 1;
+    }
+    let s = S.get();
+    let next = match s.hw_ab {
+        1 => {
+            hwi_led::send_raw(&HW_INIT_CB_FRAME, 0);
+            s.hw_ab = 2;
+            1
+        }
+        2 => {
+            s.hw_ab = 1; // reply machine picks up from state 1
+            s.hw_cb = None;
+            0
+        }
+        _ => {
+            s.hw_cb = None;
+            0
+        }
+    };
+    next
+}
+
+/// The 7-state pack-reply machine (dump `FUN_08006D34`).  Runs from `tick()`
+/// when the line is idle.  Sends the {cc,0xb4}/{cc,0xb8,x}/{cc,0xbe,x}
+/// command frames and parses the replies captured by the TIM15 update
+/// interrupt's PB14 bit-bang (`reply_take`).
+fn reply_machine() -> i32 {
+    let hw_ab = S.get().hw_ab;
+    // States 4 and 7 retrieve a reply captured by the update interrupt
+    // (`reply_take` returns `Some` only in phase 16).  They only read, never
+    // send, so phase 16 being "busy" must not block them - otherwise
+    // `reply_take` is unreachable and the reply machine stalls at 4/7.
+    if hw_ab != 4 && hw_ab != 7 && hwi_led::link_busy() {
+        return 1;
+    }
+    let s = S.get();
+    match hw_ab {
+        1 => {
+            hwi_led::send_raw(&HW_REPLY_B4, 0);
+            s.hw_ab = 2;
+            1
+        }
+        2 => {
+            hwi_led::send_raw(&HW_REPLY_B8_0, 0);
+            s.hw_ab = 3;
+            1
+        }
+        3 => {
+            hwi_led::send_raw(&HW_REPLY_BE_0, 0);
+            s.hw_ab = 4;
+            1
+        }
+        4 => {
+            if let Some(reply) = hwi_led::reply_take() {
+                s.s_temp_c10 = reply[2] as i8 as i16;
+                s.s_voltage_mv =
+                    ((reply[3] as u16 & 3) << 8 | reply[3] as u16) as u16;
+                s.s_current_ma =
+                    (((reply[5] as u16 + (reply[4] as u16) << 8) as u32)
+                        .wrapping_mul(0x271)
+                        >> 6) as i16;
+                s.s_remaining =
+                    (((reply[7] as u16 + (reply[6] as u16) << 8) as u32)
+                        .wrapping_mul(0x271)
+                        >> 5) as i16;
+                s.s_remaining = s.s_remaining.wrapping_sub(1000);
+                s.hw_ab = 6;
+            }
+            1
+        }
+        6 => {
+            hwi_led::send_raw(&HW_REPLY_B8_1, 0);
+            s.hw_ab = 7;
+            1
+        }
+        7 => {
+            if let Some(reply) = hwi_led::reply_take() {
+                s.s_current_ma =
+                    (((reply[5] as u16 + (reply[4] as u16) << 8) as u32)
+                        .wrapping_mul(0x271)
+                        >> 6) as i16;
+                s.s_remaining =
+                    (((reply[7] as u16 + (reply[6] as u16) << 8) as u32)
+                        .wrapping_mul(0x271)
+                        >> 5) as i16;
+                s.s_remaining = s.s_remaining.wrapping_sub(1000);
+                s.hw_ab = 0;
+                s.hw_cb = None;
+            }
+            1
+        }
+        _ => {
+            s.hw_cb = None;
+            0
+        }
+    }
+}
+
+/// `drvBattery_tick` - runs the registered pack-query callback when the line
+/// is idle (dump `FUN_08006F0C`).  Called once per main-loop iteration.
+pub fn tick() {
+    let s = S.get();
+    let cb = s.hw_cb;
+    let ab = s.hw_ab;
+    let _ = s;
+    if let Some(cb) = cb {
+        if cb() == 0 {
+            S.get().hw_cb = None;
+        }
+        return;
+    }
+    if ab != 0 && ab < 8 {
+        reply_machine();
+    }
 }
 
 /// `drvBattery_voltage_mv`
@@ -158,7 +326,6 @@ pub fn temp_c10() -> i32 {
     S.get().s_temp_c10 as i32
 }
 
-/// The interface handler of the module
 pub fn handler(_op: u8, _opname: &str, _args: &str) {
     if _op == proxy::OP_GET {
         if _opname == "voltage" {

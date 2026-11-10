@@ -291,8 +291,14 @@ pub fn run() -> ! {
         hwi_drive::tick();
         hwi_line::tick();
         hwi_buzz::tick();
+        hwi_mic::tick();
         app_lights::tick();
+        app_lightsense::tick();
         app_drive::tick();
+        drv_battery::tick();
+        ble_com::link_service_tick();
+        ble_com::ble_at_resend_tick();
+        ble_com::line_sensor_service_tick();
 
         // 6c2. USB VBUS / button detect + bootloader entry (from dump's
         //     FUN_08008784 + FUN_0800626C + FUN_080063EC bootloader check).
@@ -346,5 +352,14 @@ pub fn run() -> ! {
         // the dump's `main()` at `0x0800A020`.  `util::iwdg_kick` writes
         // IWDG_KR = 0xAAAA.
         util::iwdg_kick();
+    }
+}
+
+/// `FUN_0800626C` - the link alt callback, fired by `ble_com::link_service_tick`
+/// when link flag 2 is raised (power-good low edge).  Advances bootloader
+/// state 2 -> 3 (USB detected -> button pressed equivalent).
+pub fn link_alt_callback() {
+    if BOOTLOADER_STATE.load(Ordering::Relaxed) == 2 {
+        BOOTLOADER_STATE.store(3, Ordering::Relaxed);
     }
 }

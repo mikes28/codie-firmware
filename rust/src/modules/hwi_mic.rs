@@ -18,9 +18,11 @@ const MIC_ADC_CHANNEL: u8 = 2;
 struct State {
     mic_level: u16,
     mic_ready: bool,
+    /* when the next sample may be taken (the 500 ms tick) */
+    next_sample_ms: u32,
 }
 
-static S: Global<State> = Global::new(State { mic_level: 0, mic_ready: false });
+static S: Global<State> = Global::new(State { mic_level: 0, mic_ready: false, next_sample_ms: 0 });
 
 /// `hwiMic_init`
 pub fn init() {
@@ -32,6 +34,30 @@ pub fn init() {
     // Unlike the other modules this init has no ready guard: it always
     // resets the level (matches the C).
     s.mic_level = 0;
+    s.mic_ready = true;
+}
+/// `hwiMic_tick` - the 500 ms microphone sample (dump `FUN_080030D0`).
+///
+/// Time-gated like the original: samples the mic ADC group once per 500 ms
+/// and runs the tracking filter over it.
+pub fn tick() {
+    let st = S.get();
+    let now = crate::hal::util::millis();
+    if now < st.next_sample_ms {
+        return;
+    }
+    st.next_sample_ms = now.wrapping_add(500);
+    let _ = st;
+    let sample = hwi_adc::read(MIC_ADC_CHANNEL);
+    let s = S.get();
+    let old = s.mic_level;
+    let diff_hi = (sample as u32).wrapping_sub(old as u32);
+    let diff_lo = (old as u32).wrapping_sub(sample as u32);
+    if old == 0 || (diff_hi > 64 && diff_lo > 64) {
+        s.mic_level = sample;
+    } else {
+        s.mic_level = ((old as u32).wrapping_mul(3).wrapping_add(sample as u32) / 4) as u16;
+    }
     s.mic_ready = true;
 }
 
