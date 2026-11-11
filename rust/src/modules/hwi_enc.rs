@@ -21,7 +21,7 @@
 //!   GPIOA pin 15 switches the encoder supply on (low while the hardware
 //!   is set up, high when the encoders run).
 
-use crate::hal::{addr, gpio, nvic, rcc, timer};
+use crate::hal::{addr, gpio, nvic, rcc, timer, util};
 use crate::proto::proxy;
 use crate::state::Global;
 
@@ -103,12 +103,52 @@ pub fn reset(encoder: u8) {
 }
 
 /// the interface handler of the module
-///
-/// The original entry of "hwiEnc" in the interface table (0x08008DFD) is
-/// the stub FUN_08008DFC ("mov r0,#0; bx lr"): it answers no op and sends
-/// no reply.  Reproduced as it is.
-pub fn handler(_op: u8, _opname: &str, _args: &str) {
-    // the stub does nothing at all
+/////
+///// from FUN_08008DFD - the original is a stub that answers no op.  The
+///// reconstruction answers the count op so the rotation of each motor can
+///// be read over the command link:
+/////
+//   "get hwiEnc count <1|2>"   -> the 32 bit count of encoder 1 or 2
+//   "call hwiEnc count <1|2>"  -> the same, with op code 2 ("set")
+//   "call hwiEnc reset <1|2>"  -> reset the counter of encoder 1 or 2
+//   "call hwiEnc reset"        -> reset both encoders
+pub fn handler(op: u8, opname: &str, args: &str) {
+    use crate::proto::proxy;
+
+    if op == proxy::OP_GET && opname == "count" {
+        let mut vals = [0; 1];
+        let n = util::parse_args(args, &mut vals);
+        if n > 0 {
+            let encoder = vals[0] as u8;
+            let c = count(encoder);
+            proxy::resp_value(proxy::OP_SET, "hwiEnc", opname, &format!("{}", c));
+        }
+        return;
+    }
+
+    if op == proxy::OP_CALL {
+        if opname == "count" {
+            let mut vals = [0; 1];
+            let n = util::parse_args(args, &mut vals);
+            if n > 0 {
+                let encoder = vals[0] as u8;
+                let c = count(encoder);
+                proxy::resp_value(proxy::OP_SET, "hwiEnc", opname, &format!("{}", c));
+            }
+        } else if opname == "reset" {
+            let mut vals = [0; 1];
+            let n = util::parse_args(args, &mut vals);
+            if n > 0 {
+                let encoder = vals[0] as u8;
+                reset(encoder);
+            } else {
+                // no argument: reset both encoders
+                reset(1);
+                reset(2);
+            }
+        }
+        return;
+    }
 }
 
 /// IRQ 13 - the TIM1 update interrupt, the high part of encoder 2.
