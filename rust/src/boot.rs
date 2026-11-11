@@ -6,7 +6,7 @@ use crate::hal::{addr, gpio, util};
 use crate::mmio;
 use crate::modules::{
     app_drive, app_lights, app_lightsense, app_sys, ble_com, drv_battery, hwi_adc, hwi_buzz,
-    hwi_drive, hwi_enc, hwi_led, hwi_lightsense, hwi_line, hwi_mic, hwi_power, hwi_sonar,
+    hwi_drive, hwi_enc, hwi_led, hwi_lightsense, hwi_line, hwi_mic, hwi_power, hwi_sonar, script,
 };
 use crate::proto::proxy;
 use crate::state::Global;
@@ -233,6 +233,7 @@ pub fn run() -> ! {
     app_drive::init();
     app_sys::init();
     app_lightsense::init();
+    script::init();
 
     // ------------------------------------------------------------------
     // Phase 4: the battery pack init (the original's "hwInit")
@@ -306,6 +307,7 @@ pub fn run() -> ! {
         app_lightsense::tick();
         app_drive::tick();
         drv_battery::tick();
+        script::tick();
         ble_com::link_service_tick();
         ble_com::ble_at_resend_tick();
         ble_com::line_sensor_service_tick();

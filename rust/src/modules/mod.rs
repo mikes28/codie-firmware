@@ -20,3 +20,4 @@ pub mod hwi_line;
 pub mod hwi_mic;
 pub mod hwi_power;
 pub mod hwi_sonar;
+pub mod script;

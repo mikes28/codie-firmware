@@ -103,9 +103,13 @@ fn dump_matches_rust_port() {
 
     println!("Rust interface names from registry: {:?}", rust_registry_names);
 
-    // Compare orders
-    assert_eq!(rust_names.len(), rust_registry_names.len(),
-        "Interface table length mismatch");
+    // Compare orders.  The dump has 16 entries; the Rust port may have
+    // additional ones (e.g. the new "script" interface), so we require
+    // rust_registry_names.len() >= rust_names.len() and compare only the
+    // dump's entries.
+    assert!(rust_registry_names.len() >= rust_names.len(),
+        "Interface table length mismatch: dump has {} entries, rust has {}",
+        rust_names.len(), rust_registry_names.len());
     for (i, (dump_name, rust_name)) in rust_names.iter().zip(rust_registry_names.iter()).enumerate() {
         assert_eq!(dump_name, rust_name,
             "Interface table entry {} mismatch: dump={}, rust={}", i, dump_name, rust_name);
