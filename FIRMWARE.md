@@ -332,3 +332,14 @@ separately:
 - [`rust/PROGRESS.md`](rust/PROGRESS.md) — register-level bug fixes and open items
 - [`rust/STATUS_INTENDED_VS_REALITY.md`](STATUS_INTENDED_VS_REALITY.md) — intended behaviour vs. what the port actually does
 - [`README.md`](README.md) — build, flash, and repository notes
+
+## Relation to the Rust Port Rewrite
+
+This document describes the **original firmware** as recovered from the binary dump `stm32_flash.bin`. The Rust port (a reimplementation in `rust/`) is documented separately:
+
+- [`FEATURES.md`](rust/FEATURES.md) — per-feature implemented vs. missing list
+- [`rust/PROGRESS.md`](rust/PROGRESS.md) — register-level bug fixes and open items
+- [`rust/STATUS_INTENDED_VS_REALITY.md`](rust/STATUS_INTENDED_VS_REALITY.md) — intended behavior vs. actual port behavior
+- [`rust/README.md`](rust/README.md) — build, flash, and verification instructions
+
+The Rust port lives on the [`feat/autonomous`](https://github.com/mikes28/codie-firmware/tree/feat/autonomous) branch.
